@@ -141,7 +141,8 @@ export const DriverPortal = () => {
 
   // Tỷ lệ hoàn thành ca giao
   const shiftCompletionRate = totalOrders > 0 ? Math.round((completed / totalOrders) * 100) : 0;
-  const isShiftComplete = totalOrders > 0 && activeOrders === 0;
+  const failedOrders = orders.filter((o) => o.trang_thai === 'THAT_BAI').length;
+  const isShiftComplete = totalOrders > 0 && completed === totalOrders;
 
   return (
     <div className="space-y-6">
@@ -284,7 +285,9 @@ export const DriverPortal = () => {
                 ? 'Chúc mừng! Bạn đã hoàn thành vận chuyển đủ 100% tất cả đơn hàng trong ca. Có thể bàn giao tiền COD và kết thúc ca.'
                 : totalOrders === 0
                 ? 'Hiện chưa có đơn nào được gán cho ca này.'
-                : `Còn lại ${activeOrders} đơn hàng đang chờ lấy hoặc đang trên đường giao để đạt đủ chỉ tiêu ca.`}
+                : failedOrders > 0
+                ? `Đã giao thành công ${completed}/${totalOrders} đơn. Còn ${totalOrders - completed} đơn chưa hoàn tất (có ${failedOrders} đơn gặp sự cố / thất bại cần xử lý).`
+                : `Còn lại ${totalOrders - completed} đơn hàng đang chờ xử lý hoặc đang trên đường giao để đạt đủ chỉ tiêu ca.`}
             </p>
           </div>
         </div>
