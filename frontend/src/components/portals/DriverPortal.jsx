@@ -9,6 +9,7 @@ import {
 import { OrderDetailModal } from '../OrderDetailModal';
 import { PodSignatureModal } from '../PodSignatureModal';
 import { PrintShippingLabelModal } from '../PrintShippingLabelModal';
+import { PaginationBar } from '../PaginationBar';
 
 export const DriverPortal = () => {
   const { user } = useAuth();
@@ -16,6 +17,10 @@ export const DriverPortal = () => {
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+
+  // Pagination state (10 - 20 - 50): 1 ô đơn hàng = 1 mục
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // POD and Print state
   const [podOrder, setPodOrder] = useState(null);
@@ -112,7 +117,7 @@ export const DriverPortal = () => {
       setIncidentDesc('');
       setDriverAiGuidance(null);
       fetchDriverOrders();
-    } catch (err) {
+    } catch {
       alert('Lỗi ghi nhận sự cố');
     } finally {
       setSubmittingIncident(false);
@@ -138,7 +143,6 @@ export const DriverPortal = () => {
 
   const formatVND = (v) => new Intl.NumberFormat('vi-VN').format(v || 0) + ' đ';
 
-
   // Đảm bảo chỉ xử lý các đơn hàng thuộc về tài xế được xác thực
   const assignedOrders = driverProfile?.id
     ? orders.filter((o) => o.tai_xe_id === driverProfile.id)
@@ -148,7 +152,6 @@ export const DriverPortal = () => {
   const needPickup = assignedOrders.filter((o) => o.trang_thai === 'DA_LAY_HANG').length;
   const inTransit = assignedOrders.filter((o) => o.trang_thai === 'DANG_GIAO').length;
   const completed = assignedOrders.filter((o) => o.trang_thai === 'GIAO_THANH_CONG').length;
-  const activeOrders = needPickup + inTransit;
   const totalCODToHandover = assignedOrders
     .filter((o) => o.trang_thai === 'GIAO_THANH_CONG')
     .reduce((sum, o) => {
@@ -179,6 +182,10 @@ export const DriverPortal = () => {
   const shiftCompletionRate = totalOrders > 0 ? Math.round((completed / totalOrders) * 100) : 0;
   const failedOrders = assignedOrders.filter((o) => o.trang_thai === 'THAT_BAI').length;
   const isShiftComplete = totalOrders > 0 && completed === totalOrders;
+
+  const totalPages = Math.max(1, Math.ceil(assignedOrders.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedOrders = assignedOrders.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
     <div className="space-y-6">
@@ -249,7 +256,7 @@ export const DriverPortal = () => {
           <div className="bg-white dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Scale className="w-4 h-4 text-blue-500" /> Sức Chứa Thùng Xe & Tải Trọng
+                <Scale className="w-4 h-4 text-blue-500" /> Sức Chứa Thùng Xe &amp; Tải Trọng
               </span>
               {hasPayloadInfo ? (
                 <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
@@ -345,15 +352,12 @@ export const DriverPortal = () => {
       </div>
 
       {/* Driver Assigned Deliveries List */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-4 transition-colors duration-200">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-5 transition-colors duration-200">
         <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
           <div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">Nhiệm Vụ Giao Hàng Của Tôi</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">Danh sách các vận đơn được phân công trực tiếp cho bạn</p>
           </div>
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-            {assignedOrders.length} đơn được gán
-          </span>
         </div>
 
         {loading ? (
@@ -368,126 +372,139 @@ export const DriverPortal = () => {
             <p className="text-xs text-slate-500 mt-1">Vui lòng chờ điều phối viên gán đơn hoặc liên hệ tổng đài nội bộ</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {assignedOrders.map((o) => (
-              <div
-                key={o.id}
-                className="bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl transition space-y-4 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono font-bold text-base text-orange-600 dark:text-orange-400">
-                      {o.ma_van_don}
-                    </span>
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                      o.trang_thai === 'GIAO_THANH_CONG' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
-                      o.trang_thai === 'DANG_GIAO' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
-                      o.trang_thai === 'DA_LAY_HANG' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' :
-                      o.trang_thai === 'THAT_BAI' ? 'bg-red-500/10 text-red-600 dark:text-red-400' :
-                      'bg-sky-500/10 text-sky-600 dark:text-sky-400'
-                    }`}>
-                      {o.trang_thai === 'GIAO_THANH_CONG' ? 'Thành công' :
-                       o.trang_thai === 'DANG_GIAO' ? 'Đang giao' :
-                       o.trang_thai === 'DA_LAY_HANG' ? 'Đã lấy hàng' :
-                       o.trang_thai === 'THAT_BAI' ? 'Thất bại' : 'Mới'}
-                    </span>
-                  </div>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {paginatedOrders.map((o) => (
+                <div
+                  key={o.id}
+                  className="bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl transition space-y-4 flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono font-bold text-base text-orange-600 dark:text-orange-400">
+                        {o.ma_van_don}
+                      </span>
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        o.trang_thai === 'GIAO_THANH_CONG' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
+                        o.trang_thai === 'DANG_GIAO' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+                        o.trang_thai === 'DA_LAY_HANG' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' :
+                        o.trang_thai === 'THAT_BAI' ? 'bg-red-500/10 text-red-600 dark:text-red-400' :
+                        'bg-sky-500/10 text-sky-600 dark:text-sky-400'
+                      }`}>
+                        {o.trang_thai === 'GIAO_THANH_CONG' ? 'Thành công' :
+                         o.trang_thai === 'DANG_GIAO' ? 'Đang giao' :
+                         o.trang_thai === 'DA_LAY_HANG' ? 'Đã lấy hàng' :
+                         o.trang_thai === 'THAT_BAI' ? 'Thất bại' : 'Mới'}
+                      </span>
+                    </div>
 
-                  <div className="mt-3 space-y-2 bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <div className="flex items-start gap-2">
-                      <MapPin className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
-                      <div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">Địa chỉ giao:</div>
-                        <div className="text-sm font-semibold text-slate-900 dark:text-white">{o.nguoi_nhan_dia_chi}, {o.nguoi_nhan_tinh_thanh}</div>
+                    <div className="mt-3 space-y-2 bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400">Địa chỉ giao:</div>
+                          <div className="text-sm font-semibold text-slate-900 dark:text-white">{o.nguoi_nhan_dia_chi}, {o.nguoi_nhan_tinh_thanh}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                        <div>
+                          <span className="text-slate-500 dark:text-slate-400">Người nhận: </span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">{o.nguoi_nhan_ten}</span>
+                        </div>
+                        <a
+                          href={`tel:${o.nguoi_nhan_sdt}`}
+                          className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1 transition"
+                        >
+                          <Phone className="w-3 h-3" /> {o.nguoi_nhan_sdt}
+                        </a>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-                      <div>
-                        <span className="text-slate-500 dark:text-slate-400">Người nhận: </span>
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">{o.nguoi_nhan_ten}</span>
+                    <div className="mt-3 flex items-center justify-between text-xs px-1">
+                      <div className="text-slate-500 dark:text-slate-400">
+                        Hàng: <strong className="text-slate-800 dark:text-slate-200">{o.loai_hang_hoa} ({o.khoi_luong_kg}kg)</strong>
                       </div>
-                      <a
-                        href={`tel:${o.nguoi_nhan_sdt}`}
-                        className="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1 transition"
-                      >
-                        <Phone className="w-3 h-3" /> {o.nguoi_nhan_sdt}
-                      </a>
+                      <div>
+                        Tiền thu hộ COD: <strong className="text-amber-600 dark:text-amber-400 text-sm">{formatVND(o.tien_thu_ho_cod)}</strong>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="mt-3 flex items-center justify-between text-xs px-1">
-                    <div className="text-slate-500 dark:text-slate-400">
-                      Hàng: <strong className="text-slate-800 dark:text-slate-200">{o.loai_hang_hoa} ({o.khoi_luong_kg}kg)</strong>
-                    </div>
-                    <div>
-                      Tiền thu hộ COD: <strong className="text-amber-600 dark:text-amber-400 text-sm">{formatVND(o.tien_thu_ho_cod)}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-slate-200 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-2">
-                  <button
-                    onClick={() => {
-                      setSelectedOrder(o);
-                      setIsDetailOpen(true);
-                    }}
-                    className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition flex items-center gap-1 cursor-pointer"
-                  >
-                    Xem lịch trình <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-
-                  <div className="flex items-center gap-2">
-                    {/* Nút xem/in tem A6 */}
+                  <div className="pt-3 border-t border-slate-200 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-2">
                     <button
-                      onClick={() => setPrintOrder(o)}
-                      title="Xem & In phiếu gửi A6"
-                      className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                      onClick={() => {
+                        setSelectedOrder(o);
+                        setIsDetailOpen(true);
+                      }}
+                      className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition flex items-center gap-1 cursor-pointer"
                     >
-                      <Printer className="w-3.5 h-3.5" />
+                      Xem lịch trình <ChevronRight className="w-3.5 h-3.5" />
                     </button>
 
-                    {o.trang_thai === 'DA_LAY_HANG' && (
+                    <div className="flex items-center gap-2">
+                      {/* Nút xem/in tem A6 */}
                       <button
-                        onClick={() => handleUpdateStatus(o.id, 'DANG_GIAO')}
-                        className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition flex items-center gap-1 shadow-xs cursor-pointer"
+                        onClick={() => setPrintOrder(o)}
+                        title="Xem & In phiếu gửi A6"
+                        className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
                       >
-                        <Truck className="w-3.5 h-3.5" /> Bắt đầu đi giao
+                        <Printer className="w-3.5 h-3.5" />
                       </button>
-                    )}
 
-                    {o.trang_thai === 'DANG_GIAO' && (
-                      <>
+                      {o.trang_thai === 'DA_LAY_HANG' && (
                         <button
-                          onClick={() => setIncidentOrder(o)}
-                          className="px-3 py-2 rounded-xl bg-red-50 dark:bg-red-600/20 hover:bg-red-100 dark:hover:bg-red-600/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-500/30 text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
+                          onClick={() => handleUpdateStatus(o.id, 'DANG_GIAO')}
+                          className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition flex items-center gap-1 shadow-xs cursor-pointer"
                         >
-                          <AlertTriangle className="w-3.5 h-3.5" /> Báo sự cố
+                          <Truck className="w-3.5 h-3.5" /> Bắt đầu đi giao
                         </button>
-                        <button
-                          onClick={() => setPodOrder(o)}
-                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1 shadow-xs cursor-pointer"
-                        >
-                          <FileCheck className="w-3.5 h-3.5" /> Ký nhận & Hoàn tất
-                        </button>
-                      </>
-                    )}
+                      )}
 
-                    {o.trang_thai === 'GIAO_THANH_CONG' && (
-                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-4 h-4" /> Đã hoàn thành
-                      </span>
-                    )}
+                      {o.trang_thai === 'DANG_GIAO' && (
+                        <>
+                          <button
+                            onClick={() => setIncidentOrder(o)}
+                            className="px-3 py-2 rounded-xl bg-red-50 dark:bg-red-600/20 hover:bg-red-100 dark:hover:bg-red-600/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-500/30 text-xs font-semibold transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5" /> Báo sự cố
+                          </button>
+                          <button
+                            onClick={() => setPodOrder(o)}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-1 shadow-xs cursor-pointer"
+                          >
+                            <FileCheck className="w-3.5 h-3.5" /> Ký nhận &amp; Hoàn tất
+                          </button>
+                        </>
+                      )}
 
-                    {o.trang_thai === 'THAT_BAI' && (
-                      <span className="text-xs text-red-600 dark:text-red-400 font-semibold flex items-center gap-1">
-                        <AlertTriangle className="w-4 h-4" /> Đang ghi nhận sự cố
-                      </span>
-                    )}
+                      {o.trang_thai === 'GIAO_THANH_CONG' && (
+                        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-4 h-4" /> Đã hoàn thành
+                        </span>
+                      )}
+
+                      {o.trang_thai === 'THAT_BAI' && (
+                        <span className="text-xs text-red-600 dark:text-red-400 font-semibold flex items-center gap-1">
+                          <AlertTriangle className="w-4 h-4" /> Đang ghi nhận sự cố
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+
+            {/* Pagination Bar (10 - 20 - 50): Hiển thị 10 20 50 */}
+            <PaginationBar
+              totalItems={assignedOrders.length}
+              pageSize={pageSize}
+              setPageSize={setPageSize}
+              currentPage={safePage}
+              setCurrentPage={setCurrentPage}
+              itemLabel="vận đơn"
+              sizeSuffix=""
+            />
           </div>
         )}
       </div>
@@ -604,7 +621,6 @@ export const DriverPortal = () => {
           </div>
         </div>
       )}
-
 
       {/* Order Detail Modal */}
       <OrderDetailModal

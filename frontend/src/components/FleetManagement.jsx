@@ -1,18 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { driversAPI, ordersAPI } from '../api';
 import {
-  Truck, ShieldCheck, Phone, CheckCircle2, Clock, AlertCircle,
-  RefreshCw, Scale, Star, UserCheck, Search, Filter, Plus
+  Truck, Phone, RefreshCw, Scale, Star, Search, Plus
 } from 'lucide-react';
 import { CreateDriverModal } from './CreateDriverModal';
+import { PaginationBar } from './PaginationBar';
 
-export const FleetManagement = () => {
+export const FleetManagement = ({ onDriversChanged }) => {
   const [drivers, setDrivers] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [isCreateDriverOpen, setIsCreateDriverOpen] = useState(false);
+
+  // Pagination state (10 - 20 - 50): 1 tài xế tương ứng 1 bản ghi/dòng phân trang
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const fetchData = async () => {
     setLoading(true);
@@ -38,7 +42,8 @@ export const FleetManagement = () => {
     try {
       await driversAPI.updateStatus(driverId, newStatus);
       fetchData();
-    } catch (err) {
+      onDriversChanged?.();
+    } catch {
       alert('Không thể cập nhật trạng thái tài xế');
     }
   };
@@ -75,16 +80,17 @@ export const FleetManagement = () => {
     return matchSearch && matchStatus;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredDrivers.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedDrivers = filteredDrivers.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   return (
     <div className="space-y-6">
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            Quản Lý & Giám Sát Đội Xe Vận Tải
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold">
-              {drivers.length} phương tiện & tài xế
-            </span>
+            Quản Lý &amp; Giám Sát Đội Xe Vận Tải
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Theo dõi vị trí hoạt động, tải trọng xe thực tế, công suất ca giao và tiền COD tài xế đang giữ
@@ -99,7 +105,10 @@ export const FleetManagement = () => {
             <Plus className="w-4 h-4" /> Thêm Tài Xế Mới
           </button>
           <button
-            onClick={fetchData}
+            onClick={() => {
+              fetchData();
+              onDriversChanged?.();
+            }}
             className="p-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-slate-700 transition cursor-pointer flex items-center gap-2 text-xs font-semibold"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Làm mới
@@ -116,7 +125,10 @@ export const FleetManagement = () => {
               type="text"
               placeholder="Tìm tên tài xế, biển số, SĐT..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -126,7 +138,10 @@ export const FleetManagement = () => {
           {['ALL', 'SAN_SANG', 'DANG_GIAO', 'NGHI'].map((st) => (
             <button
               key={st}
-              onClick={() => setStatusFilter(st)}
+              onClick={() => {
+                setStatusFilter(st);
+                setCurrentPage(1);
+              }}
               className={`px-3 py-1.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                 statusFilter === st
                   ? 'bg-blue-600 text-white font-semibold shadow-xs'
@@ -139,9 +154,9 @@ export const FleetManagement = () => {
         </div>
       </div>
 
-      {/* Driver Cards Grid */}
+      {/* Driver Cards Grid (Khung vuông tài xế) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredDrivers.map((driver) => {
+        {paginatedDrivers.map((driver) => {
           const stats = getDriverStats(driver.id, driver.tai_trong_kg);
           return (
             <div
@@ -250,11 +265,25 @@ export const FleetManagement = () => {
         })}
       </div>
 
+      {/* Pagination Bar (10 - 20 - 50): Hiển thị 10 20 50 */}
+      <PaginationBar
+        totalItems={filteredDrivers.length}
+        pageSize={pageSize}
+        setPageSize={setPageSize}
+        currentPage={safePage}
+        setCurrentPage={setCurrentPage}
+        itemLabel="tài xế"
+        sizeSuffix=""
+      />
+
       {/* Modal Thêm Tài Xế Mới */}
       <CreateDriverModal
         isOpen={isCreateDriverOpen}
         onClose={() => setIsCreateDriverOpen(false)}
-        onDriverCreated={fetchData}
+        onDriverCreated={() => {
+          fetchData();
+          onDriversChanged?.();
+        }}
       />
     </div>
   );

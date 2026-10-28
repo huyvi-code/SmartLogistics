@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { incidentsAPI, aiAPI } from '../api';
 import {
-  AlertTriangle, CheckCircle2, Clock, Sparkles, RefreshCw,
-  Search, ShieldAlert, ArrowRight, User, Phone, Check
+  CheckCircle2, Sparkles, RefreshCw, Search, Check
 } from 'lucide-react';
+import { PaginationBar } from './PaginationBar';
 
 export const IncidentsCenter = ({ onIncidentsChanged }) => {
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('CHUA_XU_LY');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Pagination state (10 - 20 - 50)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // AI Solution state
   const [activeIncidentId, setActiveIncidentId] = useState(null);
@@ -48,7 +52,7 @@ export const IncidentsCenter = ({ onIncidentsChanged }) => {
         incident.mo_ta
       );
       setAiResult(res);
-    } catch (err) {
+    } catch {
       alert('Không thể kết nối trợ lý AI lúc này.');
     } finally {
       setAiLoading(false);
@@ -69,7 +73,7 @@ export const IncidentsCenter = ({ onIncidentsChanged }) => {
       fetchIncidents();
       onIncidentsChanged?.();
       alert('Đã cập nhật trạng thái sự cố thành công.');
-    } catch (err) {
+    } catch {
       alert('Lỗi xử lý sự cố.');
     } finally {
       setSubmittingResolve(false);
@@ -84,16 +88,17 @@ export const IncidentsCenter = ({ onIncidentsChanged }) => {
     return matchStatus && matchSearch;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredIncidents.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedIncidents = filteredIncidents.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   return (
-    <div className="space-y-6">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-5 transition-colors duration-200">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            Trung Tâm Ứng Cứu & Xử Lý Sự Cố Hiện Trường
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 font-semibold">
-              AI Incident Copilot
-            </span>
+            Trung Tâm Ứng Cứu &amp; Xử Lý Sự Cố Hiện Trường
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Tiếp nhận báo cáo hỏng hóc, sai địa chỉ, khách hẹn lại từ tài xế và nhận đề xuất xử lý tối ưu từ AI
@@ -117,7 +122,10 @@ export const IncidentsCenter = ({ onIncidentsChanged }) => {
               type="text"
               placeholder="Tìm theo nội dung, loại sự cố..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-red-500"
             />
           </div>
@@ -127,7 +135,10 @@ export const IncidentsCenter = ({ onIncidentsChanged }) => {
           {['CHUA_XU_LY', 'DA_XU_LY', 'ALL'].map((st) => (
             <button
               key={st}
-              onClick={() => setStatusFilter(st)}
+              onClick={() => {
+                setStatusFilter(st);
+                setCurrentPage(1);
+              }}
               className={`px-3 py-1.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                 statusFilter === st
                   ? 'bg-red-500 text-white font-semibold shadow-xs'
@@ -147,13 +158,13 @@ export const IncidentsCenter = ({ onIncidentsChanged }) => {
             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-red-500" />
             Đang tải dữ liệu sự cố hiện trường...
           </div>
-        ) : filteredIncidents.length === 0 ? (
+        ) : paginatedIncidents.length === 0 ? (
           <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 text-slate-500 text-xs">
             <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
             Tuyệt vời! Không có sự cố tồn đọng nào cần xử lý.
           </div>
         ) : (
-          filteredIncidents.map((inc) => {
+          paginatedIncidents.map((inc) => {
             const isPending = inc.trang_thai === 'CHUA_XU_LY';
             return (
               <div
@@ -292,6 +303,16 @@ export const IncidentsCenter = ({ onIncidentsChanged }) => {
           })
         )}
       </div>
+
+      {/* Pagination Bar (10 - 20 - 50) */}
+      <PaginationBar
+        totalItems={filteredIncidents.length}
+        pageSize={pageSize}
+        setPageSize={setPageSize}
+        currentPage={safePage}
+        setCurrentPage={setCurrentPage}
+        itemLabel="sự cố"
+      />
     </div>
   );
 };

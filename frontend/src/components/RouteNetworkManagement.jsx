@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { routesAPI, ordersAPI } from '../api';
+import { routesAPI } from '../api';
 import {
-  MapPin, Navigation, Clock, DollarSign, RefreshCw, Search,
-  Compass, ArrowRight, ShieldCheck, CheckCircle2, Calculator
+  MapPin, RefreshCw, Search, ArrowRight
 } from 'lucide-react';
+import { PaginationBar } from './PaginationBar';
 
 export const RouteNetworkManagement = () => {
   const [routes, setRoutes] = useState([]);
@@ -11,11 +11,9 @@ export const RouteNetworkManagement = () => {
   const [selectedRegion, setSelectedRegion] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Interactive Route Test Simulator
-  const [simWeight, setSimWeight] = useState(2.5);
-  const [simCod, setSimCod] = useState(500000);
-  const [calcResult, setCalcResult] = useState(null);
-  const [calcLoading, setCalcLoading] = useState(false);
+  // Pagination state (10 - 20 - 50)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const fetchRoutes = async () => {
     setLoading(true);
@@ -53,16 +51,17 @@ export const RouteNetworkManagement = () => {
     return matchSearch && matchRegion;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredRoutes.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedRoutes = filteredRoutes.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   return (
-    <div className="space-y-6">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-5 transition-colors duration-200">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            Mạng Lưới Tuyến Vận Chuyển & Biểu Cước Quốc Gia
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 font-semibold">
-              {routes.length} trục tuyến tiêu chuẩn
-            </span>
+            Mạng Lưới Tuyến Vận Chuyển &amp; Biểu Cước Quốc Gia
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Quy định cự ly km, thời gian cam kết giao hàng (SLA) và đơn giá cước cơ sở phân định theo 5 nhóm vùng miền
@@ -86,7 +85,10 @@ export const RouteNetworkManagement = () => {
               type="text"
               placeholder="Tìm mã tuyến, điểm đầu, điểm cuối..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-orange-500"
             />
           </div>
@@ -97,7 +99,10 @@ export const RouteNetworkManagement = () => {
           {['ALL', 'NOI_THANH_HN', 'MIEN_BAC', 'BAC_NAM', 'MIEN_TRUNG', 'MIEN_NAM'].map((reg) => (
             <button
               key={reg}
-              onClick={() => setSelectedRegion(reg)}
+              onClick={() => {
+                setSelectedRegion(reg);
+                setCurrentPage(1);
+              }}
               className={`px-3 py-1.5 rounded-xl font-medium transition whitespace-nowrap cursor-pointer ${
                 selectedRegion === reg
                   ? 'bg-orange-500 text-white font-semibold shadow-xs'
@@ -112,7 +117,7 @@ export const RouteNetworkManagement = () => {
 
       {/* Routes Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredRoutes.map((route) => (
+        {paginatedRoutes.map((route) => (
           <div
             key={route.id}
             className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-3.5 hover:border-orange-500/40 transition flex flex-col justify-between"
@@ -163,6 +168,17 @@ export const RouteNetworkManagement = () => {
           </div>
         ))}
       </div>
+
+      {/* Pagination Bar (10 - 20 - 50): Hiển thị 10 20 50 */}
+      <PaginationBar
+        totalItems={filteredRoutes.length}
+        pageSize={pageSize}
+        setPageSize={setPageSize}
+        currentPage={safePage}
+        setCurrentPage={setCurrentPage}
+        itemLabel="tuyến vận chuyển"
+        sizeSuffix=""
+      />
     </div>
   );
 };

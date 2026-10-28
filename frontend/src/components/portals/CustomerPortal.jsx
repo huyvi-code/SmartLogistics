@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { ordersAPI, trackingAPI } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import {
-  Package, Search, Plus, Clock, CheckCircle2, Truck, AlertTriangle,
+  Package, Search, Plus, CheckCircle2, Truck, AlertTriangle,
   RefreshCw, Printer, Download
 } from 'lucide-react';
 import { CreateOrderModal } from '../CreateOrderModal';
 import { OrderDetailModal } from '../OrderDetailModal';
 import { PrintShippingLabelModal } from '../PrintShippingLabelModal';
+import { PaginationBar } from '../PaginationBar';
 import { exportOrdersToCSV } from '../../utils/exportUtils';
 
 export const CustomerPortal = () => {
@@ -18,6 +19,10 @@ export const CustomerPortal = () => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [printOrder, setPrintOrder] = useState(null);
+
+  // Pagination state (10 - 20 - 50): 1 đơn = 1 mục
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Quick Tracking Search
   const [trackingCode, setTrackingCode] = useState('');
@@ -70,13 +75,17 @@ export const CustomerPortal = () => {
     }
   };
 
+  const totalPages = Math.max(1, Math.ceil(myOrders.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedOrders = myOrders.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   return (
     <div className="space-y-6">
       {/* Customer Header Banner */}
       <div className="bg-gradient-to-r from-emerald-500/10 dark:from-emerald-950/40 via-white dark:via-slate-900 to-white dark:to-slate-900 border border-emerald-500/30 rounded-3xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors duration-200">
         <div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold mb-2">
-            <Package className="w-3.5 h-3.5" /> Cổng Khách Hàng Gửi & Tra Cứu Đơn
+            <Package className="w-3.5 h-3.5" /> Cổng Khách Hàng Gửi &amp; Tra Cứu Đơn
           </div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Xin chào, {user.ho_ten}!</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -95,7 +104,7 @@ export const CustomerPortal = () => {
       {/* Quick Tracking Search Box */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs space-y-4 transition-colors duration-200">
         <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <Search className="w-4 h-4 text-emerald-500" /> Tra Cứu Hành Trình Vận Đơn (Track & Trace)
+          <Search className="w-4 h-4 text-emerald-500" /> Tra Cứu Hành Trình Vận Đơn (Track &amp; Trace)
         </h2>
 
         <form onSubmit={handleTrackSearch} className="flex flex-col sm:flex-row items-center gap-3">
@@ -196,7 +205,7 @@ export const CustomerPortal = () => {
       </div>
 
       {/* Customer Shipments History (My Orders) */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs space-y-4 transition-colors duration-200">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xs space-y-5 transition-colors duration-200">
         <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
           <div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">Sổ Đơn Hàng Của Tôi</h2>
@@ -230,84 +239,97 @@ export const CustomerPortal = () => {
           <div className="py-12 text-center text-slate-500 bg-slate-50 dark:bg-slate-800/20 rounded-2xl border border-slate-200 dark:border-slate-800/80">
             <Package className="w-10 h-10 mx-auto text-slate-400 mb-2" />
             <div className="text-sm font-semibold text-slate-700 dark:text-slate-300">Bạn chưa có đơn vận chuyển nào</div>
-            <p className="text-xs text-slate-500 mt-1">Hãy nhấn nút "Đăng Ký Gửi Đơn Hàng Mới" ở trên để gửi kiện hàng đầu tiên!</p>
+            <p className="text-xs text-slate-500 mt-1">Hãy nhấn nút &ldquo;Đăng Ký Gửi Đơn Hàng Mới&rdquo; ở trên để gửi kiện hàng đầu tiên!</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 text-[11px]">
-                <tr>
-                  <th className="py-3.5 px-4">Mã Vận Đơn</th>
-                  <th className="py-3.5 px-4">Người Nhận & Địa Chỉ</th>
-                  <th className="py-3.5 px-4">Khối Lượng</th>
-                  <th className="py-3.5 px-4">Tiền Thu Hộ COD</th>
-                  <th className="py-3.5 px-4">Cước Phí</th>
-                  <th className="py-3.5 px-4">Trạng Thái</th>
-                  <th className="py-3.5 px-4 text-right">Chi Tiết</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
-                {myOrders.map((o) => (
-                  <tr key={o.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
-                    <td className="py-3.5 px-4 font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                      {o.ma_van_don}
-                      <div className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">
-                        {new Date(o.created_at).toLocaleDateString('vi-VN')}
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold text-slate-800 dark:text-slate-200">{o.nguoi_nhan_ten}</div>
-                      <div className="text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[200px]">
-                        {o.nguoi_nhan_dia_chi}, {o.nguoi_nhan_tinh_thanh}
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300">
-                      {o.khoi_luong_kg} kg
-                    </td>
-                    <td className="py-3.5 px-4 font-semibold text-amber-600 dark:text-amber-400">
-                      {formatVND(o.tien_thu_ho_cod)}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300">
-                      {formatVND(o.cuoc_phi_van_chuyen)}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                        o.trang_thai === 'GIAO_THANH_CONG' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
-                        o.trang_thai === 'DANG_GIAO' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
-                        o.trang_thai === 'DA_LAY_HANG' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' :
-                        o.trang_thai === 'THAT_BAI' ? 'bg-red-500/10 text-red-600 dark:text-red-400' :
-                        'bg-sky-500/10 text-sky-600 dark:text-sky-400'
-                      }`}>
-                        {o.trang_thai === 'GIAO_THANH_CONG' ? 'Thành công' :
-                         o.trang_thai === 'DANG_GIAO' ? 'Đang giao' :
-                         o.trang_thai === 'DA_LAY_HANG' ? 'Đã lấy hàng' :
-                         o.trang_thai === 'THAT_BAI' ? 'Thất bại' : 'Mới tiếp nhận'}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => setPrintOrder(o)}
-                          title="In phiếu gửi A6 (AWB)"
-                          className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-orange-500/10 text-slate-700 dark:text-slate-300 hover:text-orange-500 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedOrder(o);
-                            setIsDetailOpen(true);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium border border-slate-200 dark:border-slate-700 transition cursor-pointer"
-                        >
-                          Xem hành trình
-                        </button>
-                      </div>
-                    </td>
+          <div className="space-y-4">
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800 text-[11px]">
+                  <tr>
+                    <th className="py-3.5 px-4">Mã Vận Đơn</th>
+                    <th className="py-3.5 px-4">Người Nhận &amp; Địa Chỉ</th>
+                    <th className="py-3.5 px-4">Khối Lượng</th>
+                    <th className="py-3.5 px-4">Tiền Thu Hộ COD</th>
+                    <th className="py-3.5 px-4">Cước Phí</th>
+                    <th className="py-3.5 px-4">Trạng Thái</th>
+                    <th className="py-3.5 px-4 text-right">Chi Tiết</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
+                  {paginatedOrders.map((o) => (
+                    <tr key={o.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
+                      <td className="py-3.5 px-4 font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                        {o.ma_van_don}
+                        <div className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">
+                          {new Date(o.created_at).toLocaleDateString('vi-VN')}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="font-semibold text-slate-800 dark:text-slate-200">{o.nguoi_nhan_ten}</div>
+                        <div className="text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[200px]">
+                          {o.nguoi_nhan_dia_chi}, {o.nguoi_nhan_tinh_thanh}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300">
+                        {o.khoi_luong_kg} kg
+                      </td>
+                      <td className="py-3.5 px-4 font-semibold text-amber-600 dark:text-amber-400">
+                        {formatVND(o.tien_thu_ho_cod)}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300">
+                        {formatVND(o.cuoc_phi_van_chuyen)}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                          o.trang_thai === 'GIAO_THANH_CONG' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
+                          o.trang_thai === 'DANG_GIAO' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+                          o.trang_thai === 'DA_LAY_HANG' ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' :
+                          o.trang_thai === 'THAT_BAI' ? 'bg-red-500/10 text-red-600 dark:text-red-400' :
+                          'bg-sky-500/10 text-sky-600 dark:text-sky-400'
+                        }`}>
+                          {o.trang_thai === 'GIAO_THANH_CONG' ? 'Thành công' :
+                           o.trang_thai === 'DANG_GIAO' ? 'Đang giao' :
+                           o.trang_thai === 'DA_LAY_HANG' ? 'Đã lấy hàng' :
+                           o.trang_thai === 'THAT_BAI' ? 'Thất bại' : 'Mới tiếp nhận'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setPrintOrder(o)}
+                            title="In phiếu gửi A6 (AWB)"
+                            className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-orange-500/10 text-slate-700 dark:text-slate-300 hover:text-orange-500 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedOrder(o);
+                              setIsDetailOpen(true);
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                          >
+                            Xem hành trình
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Bar (10 - 20 - 50): Hiển thị 10 20 50 */}
+            <PaginationBar
+              totalItems={myOrders.length}
+              pageSize={pageSize}
+              setPageSize={setPageSize}
+              currentPage={safePage}
+              setCurrentPage={setCurrentPage}
+              itemLabel="vận đơn"
+              sizeSuffix=""
+            />
           </div>
         )}
       </div>

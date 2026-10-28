@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { trackingAPI, systemAPI } from '../api';
+import { systemAPI } from '../api';
 import {
-  Truck, Shield, User, Lock, Mail, AlertCircle, ArrowRight,
-  Sun, Moon, Search, Package, CheckCircle2, Clock, Sparkles,
-  Building2, Globe, Check, Eye, EyeOff, ShieldCheck, ChevronDown, ChevronUp,
-  RefreshCw, Zap, MapPin, Phone, UserPlus
+  Truck, User, Lock, Mail, AlertCircle, ArrowRight,
+  Sun, Moon, CheckCircle2, Eye, EyeOff,
+  RefreshCw, MapPin, Phone, UserPlus
 } from 'lucide-react';
 import { AIChatWidget } from './AIChatWidget';
 
@@ -14,8 +13,17 @@ export const LoginPage = () => {
   const { login, register } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  // Auth Mode: 'login' | 'register'
-  const [authMode, setAuthMode] = useState('login');
+  // Auth Mode: 'login' | 'register' (đồng bộ với URL /auth/login và /auth/register)
+  const [authMode, setAuthMode] = useState(() =>
+    window.location.pathname === '/auth/register' ? 'register' : 'login'
+  );
+
+  useEffect(() => {
+    const targetPath = authMode === 'register' ? '/auth/register' : '/auth/login';
+    if (window.location.pathname !== targetPath) {
+      window.history.replaceState(null, '', targetPath);
+    }
+  }, [authMode]);
 
   // Login form states
   const [email, setEmail] = useState('');
@@ -39,13 +47,6 @@ export const LoginPage = () => {
 
   // Backend connection status
   const [backendOnline, setBackendOnline] = useState(null); // null: checking, true: ok, false: offline
-
-  // Public Tracking State
-  const [showTracking, setShowTracking] = useState(false);
-  const [trackingCode, setTrackingCode] = useState('');
-  const [trackingResult, setTrackingResult] = useState(null);
-  const [trackingLoading, setTrackingLoading] = useState(false);
-  const [trackingError, setTrackingError] = useState('');
 
   // Check backend health
   const checkHealth = async () => {
@@ -136,40 +137,17 @@ export const LoginPage = () => {
     }
   };
 
-  const handleTrack = async (e) => {
-    e.preventDefault();
-    if (!trackingCode.trim()) return;
-    setTrackingLoading(true);
-    setTrackingError('');
-    setTrackingResult(null);
-
-    try {
-      const data = await trackingAPI.track(trackingCode.trim());
-      setTrackingResult(data);
-    } catch (err) {
-      setTrackingError(err.response?.data?.detail || 'Không tìm thấy thông tin vận đơn này.');
-    } finally {
-      setTrackingLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col justify-between p-4 sm:p-6 transition-colors duration-200">
       {/* Top Bar: Brand & Theme Switcher */}
-      <header className="max-w-6xl w-full mx-auto flex items-center justify-between py-2">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-500/20 text-white font-bold">
+      <header className="w-full flex items-center justify-between py-2">
+        <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 border border-slate-800 dark:border-slate-200 shadow-md transition-colors duration-200">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-md shadow-orange-500/20 text-white font-bold">
             <Truck className="w-5 h-5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-black tracking-tight text-slate-900 dark:text-white">SmartLogistics</span>
-              <span className="text-[10px] uppercase tracking-widest font-extrabold px-1.5 py-0.5 rounded bg-orange-500 text-slate-950">
-                ENTERPRISE
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Hệ thống Quản trị & Điều hành Vận tải Bưu chính Cloud</p>
-          </div>
+          <span className="text-lg font-black tracking-wide">
+            SmartLogistics
+          </span>
         </div>
 
         {/* Status & Theme Toggle Button */}
@@ -206,8 +184,8 @@ export const LoginPage = () => {
         </div>
       </header>
 
-      {/* Main Container */}
-      <main className="max-w-6xl w-full mx-auto my-auto py-8">
+      {/* Main Centered Container */}
+      <main className="flex-1 w-full max-w-lg mx-auto flex flex-col justify-center py-6">
         {/* Backend Connection Warning if Offline */}
         {backendOnline === false && (
           <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-500/40 rounded-2xl text-amber-800 dark:text-amber-300 text-xs flex items-start gap-3">
@@ -224,92 +202,14 @@ export const LoginPage = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
-          {/* Left Column: Enterprise Value Proposition & Highlights */}
-          <div className="lg:col-span-6 space-y-6">
-            <div className="space-y-3">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-bold">
-                <Globe className="w-3.5 h-3.5" /> Mạng lưới vận tải toàn quốc 24/7
-              </div>
-              <h1 className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
-                Giải Pháp Số Hóa Vận Hành Bưu Chính & Logistics
-              </h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                Tối ưu hóa toàn diện chu trình vận tải: từ khởi tạo đơn hàng, tự động nhận diện tuyến trục, điều phối tải trọng đội xe thông minh đến đối soát tài chính COD tự động.
-              </p>
-            </div>
-
-            {/* Enterprise Feature Points */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs">
-                <div className="w-8 h-8 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 flex items-center justify-center mb-2.5 font-bold">
-                  16
-                </div>
-                <div className="font-bold text-xs text-slate-900 dark:text-white">Trục Tuyến Quốc Gia</div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Phủ sóng 5 vùng miền, tự động đề xuất lộ trình tối ưu (Auto-Match).
-                </div>
-              </div>
-
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-2.5 font-bold">
-                  SLA
-                </div>
-                <div className="font-bold text-xs text-slate-900 dark:text-white">Cam Kết Giao Đúng Hạn</div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Định mức thời gian SLA từng chặng, giám sát timeline thời gian thực.
-                </div>
-              </div>
-
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs">
-                <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mb-2.5 font-bold">
-                  AI
-                </div>
-                <div className="font-bold text-xs text-slate-900 dark:text-white">Trí Tuệ Nhân Tạo Copilot</div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Chấm điểm phân công tài xế và ứng cứu xử lý sự cố hiện trường tức thì.
-                </div>
-              </div>
-
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs">
-                <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-2.5 font-bold">
-                  POD
-                </div>
-                <div className="font-bold text-xs text-slate-900 dark:text-white">Ký Nhận & In Tem A6</div>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Bằng chứng giao hàng điện tử và in nhãn nhiệt A6 có mã vạch barcode.
-                </div>
-              </div>
-            </div>
-
-            {/* Public Tracking Toggle */}
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => setShowTracking(!showTracking)}
-                className="text-xs text-orange-600 dark:text-orange-400 hover:underline font-semibold flex items-center gap-1.5 cursor-pointer"
-              >
-                <Search className="w-3.5 h-3.5" />
-                {showTracking ? 'Ẩn khung tra cứu công khai' : 'Bạn là người nhận hàng? Tra cứu hành trình bưu phẩm không cần đăng nhập'}
-              </button>
-            </div>
-          </div>
-
-          {/* Right Column: Dynamic Form (Login vs Register Customer) */}
-          <div className="lg:col-span-6 space-y-4">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-7 sm:p-8 rounded-3xl shadow-xl space-y-6">
-              {/* Header with Switcher Tabs */}
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                <div>
-                  <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                    {authMode === 'login' ? 'Đăng Nhập Cổng Vận Hành' : 'Đăng Ký Tài Khoản Gửi Hàng'}
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    {authMode === 'login'
-                      ? 'Truy cập không gian làm việc chuyên biệt theo vai trò'
-                      : 'Tạo tài khoản đối tác để bắt đầu tạo đơn bưu phẩm và quản lý tiền COD'}
-                  </p>
-                </div>
+        {/* Centered Dynamic Form (Login vs Register Customer) */}
+        <div className="w-full space-y-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-7 sm:p-8 rounded-3xl shadow-xl space-y-6">
+            {/* Header with Switcher Tabs */}
+              <div className="flex items-center justify-center border-b border-slate-100 dark:border-slate-800 pb-3 text-center">
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                  {authMode === 'login' ? 'Đăng Nhập' : 'Đăng Ký Tài Khoản Gửi Hàng'}
+                </h2>
               </div>
 
               {/* Error & Success Messages */}
@@ -574,22 +474,14 @@ export const LoginPage = () => {
                   </div>
                 </form>
               )}
-
-              {/* Security Badge */}
-              <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-center gap-2 text-[11px] text-slate-400">
-                <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                <span>Bảo mật kết nối SSL 256-bit • Chứng chỉ an toàn ISO/IEC 27001</span>
-              </div>
             </div>
 
             {/* Quick Access / Demo Accounts Card (Always Accessible) */}
             <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5 text-orange-500" />
-                  Đăng Nhập Nhanh 1-Chạm (Tài Khoản Mẫu)
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Đăng nhập nhanh 1 chạm - Demo
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono">3 Phân quyền</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
                 {/* 1. Admin */}
@@ -600,20 +492,17 @@ export const LoginPage = () => {
                     setAuthMode('login');
                     handleQuickLogin('admin@smartlog.vn', 'admin123', 'admin');
                   }}
-                  className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between ${
-                    email === 'admin@smartlog.vn' && authMode === 'login'
+                  className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between ${email === 'admin@smartlog.vn' && authMode === 'login'
                       ? 'bg-orange-500/10 border-orange-500 text-orange-600 font-bold'
                       : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-orange-400'
-                  }`}
+                    }`}
                 >
                   <div>
-                    <div className="font-semibold flex items-center gap-1.5">
-                      <Shield className="w-3.5 h-3.5 text-orange-500" /> Điều Phối / Quản Lý
-                    </div>
+                    <div className="font-semibold">Điều Phối / Quản Lý</div>
                     <div className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">admin@smartlog.vn</div>
                   </div>
-                  <div className="mt-2 text-[10px] text-orange-600 dark:text-orange-400 font-bold flex items-center gap-1">
-                    {quickLoadingRole === 'admin' ? 'Đang vào...' : '⚡ Vào ngay'}
+                  <div className="mt-2 text-[10px] text-orange-600 dark:text-orange-400 font-bold">
+                    {quickLoadingRole === 'admin' ? 'Đang vào...' : 'Vào ngay'}
                   </div>
                 </button>
 
@@ -625,20 +514,17 @@ export const LoginPage = () => {
                     setAuthMode('login');
                     handleQuickLogin('driver1@smartlog.vn', 'driver123', 'driver');
                   }}
-                  className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between ${
-                    email === 'driver1@smartlog.vn' && authMode === 'login'
+                  className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between ${email === 'driver1@smartlog.vn' && authMode === 'login'
                       ? 'bg-blue-500/10 border-blue-500 text-blue-600 font-bold'
                       : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-blue-400'
-                  }`}
+                    }`}
                 >
                   <div>
-                    <div className="font-semibold flex items-center gap-1.5">
-                      <Truck className="w-3.5 h-3.5 text-blue-500" /> Tài Xế Giao Nhận
-                    </div>
+                    <div className="font-semibold">Tài Xế Giao Nhận</div>
                     <div className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">driver1@smartlog.vn</div>
                   </div>
-                  <div className="mt-2 text-[10px] text-blue-600 dark:text-blue-400 font-bold flex items-center gap-1">
-                    {quickLoadingRole === 'driver' ? 'Đang vào...' : '⚡ Vào ngay'}
+                  <div className="mt-2 text-[10px] text-blue-600 dark:text-blue-400 font-bold">
+                    {quickLoadingRole === 'driver' ? 'Đang vào...' : 'Vào ngay'}
                   </div>
                 </button>
 
@@ -650,90 +536,22 @@ export const LoginPage = () => {
                     setAuthMode('login');
                     handleQuickLogin('customer@smartlog.vn', 'customer123', 'customer');
                   }}
-                  className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between ${
-                    email === 'customer@smartlog.vn' && authMode === 'login'
+                  className={`p-2.5 rounded-xl border text-left text-xs transition cursor-pointer flex flex-col justify-between ${email === 'customer@smartlog.vn' && authMode === 'login'
                       ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 font-bold'
                       : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-400'
-                  }`}
+                    }`}
                 >
                   <div>
-                    <div className="font-semibold flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5 text-emerald-500" /> Khách Hàng
-                    </div>
+                    <div className="font-semibold">Khách Hàng</div>
                     <div className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">customer@smartlog.vn</div>
                   </div>
-                  <div className="mt-2 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
-                    {quickLoadingRole === 'customer' ? 'Đang vào...' : '⚡ Vào ngay'}
+                  <div className="mt-2 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                    {quickLoadingRole === 'customer' ? 'Đang vào...' : 'Vào ngay'}
                   </div>
                 </button>
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Public Tracking Section (Toggled) */}
-        {showTracking && (
-          <div className="mt-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-lg space-y-4 animate-in fade-in">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Search className="w-4 h-4 text-orange-500" /> Tra Cứu Hành Trình Bưu Phẩm Quốc Gia
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Nhập mã vận đơn dạng VN2026-xxxx hoặc 4 chữ số cuối để kiểm tra thời gian thực
-              </p>
-            </div>
-
-            <form onSubmit={handleTrack} className="flex gap-2">
-              <input
-                type="text"
-                placeholder="VD: VN2026-4821 hoặc 4821"
-                value={trackingCode}
-                onChange={(e) => setTrackingCode(e.target.value)}
-                className="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:border-orange-500"
-              />
-              <button
-                type="submit"
-                disabled={trackingLoading}
-                className="px-5 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs rounded-xl shadow-xs transition cursor-pointer disabled:opacity-50"
-              >
-                {trackingLoading ? 'Đang tìm...' : 'Tra Cứu'}
-              </button>
-            </form>
-
-            {trackingError && (
-              <div className="p-3 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 rounded-xl text-xs">
-                {trackingError}
-              </div>
-            )}
-
-            {trackingResult && (
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono font-bold text-orange-600 dark:text-orange-400 text-sm">
-                    {trackingResult.ma_van_don}
-                  </span>
-                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
-                    {trackingResult.trang_thai}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Điểm nhận:</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      {trackingResult.nguoi_nhan_tinh_thanh}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Tài xế giao:</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      {trackingResult.tai_xe?.ho_ten || 'Đang điều phối'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </main>
 
       {/* Footer */}

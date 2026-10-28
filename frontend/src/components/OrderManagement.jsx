@@ -11,6 +11,7 @@ import { CreateOrderModal } from './CreateOrderModal';
 import { OrderDetailModal } from './OrderDetailModal';
 import { AssignDriverModal } from './AssignDriverModal';
 import { PrintShippingLabelModal } from './PrintShippingLabelModal';
+import { PaginationBar } from './PaginationBar';
 
 export const OrderManagement = ({ onOrdersChanged }) => {
   const { user } = useAuth();
@@ -20,6 +21,10 @@ export const OrderManagement = ({ onOrdersChanged }) => {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [priorityFilter, setPriorityFilter] = useState('ALL');
   const [dateRangeFilter, setDateRangeFilter] = useState('ALL');
+
+  // Pagination state (10 - 20 - 50)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Checkbox selection for batch operations
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
@@ -51,11 +56,13 @@ export const OrderManagement = ({ onOrdersChanged }) => {
   };
 
   useEffect(() => {
+    setCurrentPage(1);
     fetchOrders();
   }, [statusFilter, priorityFilter]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
+    setCurrentPage(1);
     fetchOrders();
   };
 
@@ -81,10 +88,14 @@ export const OrderManagement = ({ onOrdersChanged }) => {
     return true;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedOrders = filteredOrders.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   // Batch selection handlers
   const handleSelectAll = (e) => {
     if (e.target.checked) {
-      setSelectedOrderIds(filteredOrders.map((o) => o.id));
+      setSelectedOrderIds(paginatedOrders.map((o) => o.id));
     } else {
       setSelectedOrderIds([]);
     }
@@ -177,10 +188,7 @@ export const OrderManagement = ({ onOrdersChanged }) => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Danh Sách & Điều Phối Vận Đơn</h2>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/30">
-              {filteredOrders.length} vận đơn
-            </span>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Danh Sách &amp; Điều Phối Vận Đơn</h2>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Điều phối phương tiện, in tem nhãn nhiệt A6, gán tuyến bưu chính và theo dõi hành trình thời gian thực
@@ -247,7 +255,10 @@ export const OrderManagement = ({ onOrdersChanged }) => {
         <div className="flex flex-col sm:flex-row items-center gap-2">
           <select
             value={dateRangeFilter}
-            onChange={(e) => setDateRangeFilter(e.target.value)}
+            onChange={(e) => {
+              setDateRangeFilter(e.target.value);
+              setCurrentPage(1);
+            }}
             className="w-full sm:w-auto px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-300 focus:outline-none focus:border-orange-500"
           >
             <option value="ALL">📅 Tất cả thời gian</option>
@@ -318,14 +329,14 @@ export const OrderManagement = ({ onOrdersChanged }) => {
                 <input
                   type="checkbox"
                   onChange={handleSelectAll}
-                  checked={selectedOrderIds.length > 0 && selectedOrderIds.length === filteredOrders.length}
+                  checked={paginatedOrders.length > 0 && paginatedOrders.every((o) => selectedOrderIds.includes(o.id))}
                   className="rounded border-slate-300 text-orange-500 focus:ring-orange-500"
                 />
               </th>
               <th className="py-3.5 px-4">Mã Vận Đơn</th>
               <th className="py-3.5 px-4">Người Gửi (Kho/Shop)</th>
               <th className="py-3.5 px-4">Người Nhận (Điểm Giao)</th>
-              <th className="py-3.5 px-4">Khối Lượng & Thu Hộ</th>
+              <th className="py-3.5 px-4">Khối Lượng &amp; Thu Hộ</th>
               <th className="py-3.5 px-4">Tài Xế Phụ Trách</th>
               <th className="py-3.5 px-4">Trạng Thái</th>
               <th className="py-3.5 px-4 text-right">Thao Tác</th>
@@ -339,14 +350,14 @@ export const OrderManagement = ({ onOrdersChanged }) => {
                   Đang tải danh sách đơn hàng...
                 </td>
               </tr>
-            ) : filteredOrders.length === 0 ? (
+            ) : paginatedOrders.length === 0 ? (
               <tr>
                 <td colSpan="8" className="py-12 text-center text-slate-500">
                   Không có đơn hàng nào phù hợp với bộ lọc hiện tại.
                 </td>
               </tr>
             ) : (
-              filteredOrders.map((o) => (
+              paginatedOrders.map((o) => (
                 <tr key={o.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition group">
                   {/* Checkbox */}
                   <td className="py-3.5 px-4">
@@ -478,6 +489,16 @@ export const OrderManagement = ({ onOrdersChanged }) => {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Bar (10 - 20 - 50) */}
+      <PaginationBar
+        totalItems={filteredOrders.length}
+        pageSize={pageSize}
+        setPageSize={setPageSize}
+        currentPage={safePage}
+        setCurrentPage={setCurrentPage}
+        itemLabel="vận đơn"
+      />
 
       {/* Modals */}
       <CreateOrderModal

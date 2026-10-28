@@ -1,8 +1,14 @@
-import React from 'react';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import React, { useEffect } from 'react';
+import {
+  AuthProvider,
+  useAuth,
+  getDefaultRouteForRole,
+  isPathAllowedForRole,
+} from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Navbar } from './components/Navbar';
 import { LoginPage } from './components/LoginPage';
+import { LoginWelcomeTransition } from './components/LoginWelcomeTransition';
 import { DispatcherPortal } from './components/portals/DispatcherPortal';
 import { DriverPortal } from './components/portals/DriverPortal';
 import { CustomerPortal } from './components/portals/CustomerPortal';
@@ -10,7 +16,25 @@ import { AIChatWidget } from './components/AIChatWidget';
 
 
 const MainAppContent = () => {
-  const { user, loading } = useAuth();
+  const { user, loading, showWelcomeTransition, completeWelcomeTransition } = useAuth();
+
+  // Bảo vệ URL & Phân quyền tuyến đường (Route Guard) theo thời gian thực
+  useEffect(() => {
+    if (loading) return;
+
+    const enforceRouteGuard = () => {
+      const currentPath = window.location.pathname;
+      const role = user?.vai_tro || null;
+      if (!isPathAllowedForRole(currentPath, role)) {
+        const redirectUrl = getDefaultRouteForRole(role);
+        window.history.replaceState({ role }, '', redirectUrl);
+      }
+    };
+
+    enforceRouteGuard();
+    window.addEventListener('popstate', enforceRouteGuard);
+    return () => window.removeEventListener('popstate', enforceRouteGuard);
+  }, [user, loading]);
 
   if (loading) {
     return (
@@ -23,20 +47,28 @@ const MainAppContent = () => {
     );
   }
 
-  // 1. Nếu chưa đăng nhập: Hiển thị trang đăng nhập độc lập (LoginPage)
+  // 1. Nếu chưa đăng nhập: Hiển thị trang đăng nhập độc lập (LoginPage) tại /auth/login hoặc /auth/register
   if (!user) {
     return <LoginPage />;
   }
 
-  // 2. Nếu đã đăng nhập: Hiển thị không gian làm việc chuyên biệt theo vai trò
+  // 2. Nếu đã đăng nhập: Hiển thị không gian làm việc chuyên biệt theo đúng vai trò & URL tương ứng
   const renderPortal = () => {
     switch (user.vai_tro) {
       case 'QUAN_LY':
         return <DispatcherPortal />;
       case 'TAI_XE':
-        return <DriverPortal />;
+        return (
+          <div className="max-w-7xl w-full mx-auto">
+            <DriverPortal />
+          </div>
+        );
       case 'KHACH_HANG':
-        return <CustomerPortal />;
+        return (
+          <div className="max-w-7xl w-full mx-auto">
+            <CustomerPortal />
+          </div>
+        );
       default:
         return <LoginPage />;
     }
@@ -44,9 +76,17 @@ const MainAppContent = () => {
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+      {/* Hiệu ứng chuyển cảnh chiếc xe 3D chạy từ trái qua phải & Chào mừng người dùng khi vừa đăng nhập */}
+      {showWelcomeTransition && (
+        <LoginWelcomeTransition
+          user={user}
+          onComplete={completeWelcomeTransition}
+        />
+      )}
+
       <Navbar />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6">
+      <main className="flex-1 w-full px-4 sm:px-6 py-6">
         {renderPortal()}
       </main>
 

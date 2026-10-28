@@ -33,28 +33,32 @@ export const Navbar = () => {
   };
 
   return (
-    <header className="bg-white/80 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40 px-4 lg:px-8 py-3 transition-colors duration-200 shadow-xs">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-        {/* Brand */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-lg shadow-orange-500/20 text-white font-bold">
-            <Truck className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">SmartLogistics</span>
-              <span className="text-[10px] uppercase tracking-widest font-extrabold px-1.5 py-0.5 rounded bg-orange-500 text-slate-950">TMS</span>
+    <header className="bg-white/80 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40 px-4 sm:px-6 py-3 transition-colors duration-200 shadow-xs">
+      <div className="w-full flex items-center justify-between gap-4">
+        {/* Left: Brand Logo + Inline Command Center Title */}
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 border border-slate-800 dark:border-slate-200 shadow-md transition-colors duration-200 shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-orange-600 to-amber-500 flex items-center justify-center shadow-md shadow-orange-500/20 text-white font-bold">
+              <Truck className="w-5 h-5" />
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">Hệ thống quản lý vận tải giao hàng tích hợp AI</p>
+            <span className="text-lg font-black tracking-wide">
+              SmartLogistics
+            </span>
           </div>
+
+          {user?.vai_tro === 'QUAN_LY' && (
+            <h1 className="hidden lg:block text-base font-bold text-slate-800 dark:text-slate-100 tracking-tight truncate">
+              Trung Tâm Chỉ Huy &amp; Điều Hành Vận Tải Toàn Quốc
+            </h1>
+          )}
         </div>
 
         {/* Right Actions: Theme Toggle + User Info + Logout */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           {/* Theme Toggle Button */}
           <button
             onClick={toggleTheme}
-            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-orange-500 dark:hover:text-orange-400 transition"
+            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-orange-500 dark:hover:text-orange-400 transition cursor-pointer"
             title={`Chuyển sang giao diện ${theme === 'dark' ? 'Sáng' : 'Tối'}`}
           >
             {theme === 'dark' ? (
@@ -76,7 +80,7 @@ export const Navbar = () => {
               <button
                 onClick={logout}
                 title="Đăng xuất khỏi hệ thống"
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-red-500/10 text-slate-600 dark:text-slate-400 hover:text-red-500 border border-slate-200 dark:border-slate-700 transition flex items-center gap-1.5 text-xs font-semibold"
+                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-red-500/10 text-slate-600 dark:text-slate-400 hover:text-red-500 border border-slate-200 dark:border-slate-700 transition flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />
                 <span className="hidden md:inline">Đăng xuất</span>

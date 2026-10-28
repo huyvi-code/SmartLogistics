@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { ordersAPI } from '../api';
 import { exportReconciliationToCSV } from '../utils/exportUtils';
 import {
-  DollarSign, Download, CheckCircle2, Clock, AlertCircle, RefreshCw,
-  Search, Filter, ShieldCheck, ArrowUpRight, ArrowDownLeft, Building
+  Download, CheckCircle2, Clock, RefreshCw, Search
 } from 'lucide-react';
+import { PaginationBar } from './PaginationBar';
 
 export const CodReconciliation = ({ onSettlementChanged }) => {
   const [orders, setOrders] = useState([]);
@@ -13,6 +13,10 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
   const [settlementFilter, setSettlementFilter] = useState('ALL');
   const [selectedIds, setSelectedIds] = useState([]);
   const [processing, setProcessing] = useState(false);
+
+  // Pagination state (10 - 20 - 50)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -35,16 +39,6 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
   // Lọc chỉ các đơn có COD hoặc đã hoàn thành
   const codOrders = orders.filter((o) => (o.tien_thu_ho_cod > 0) || o.thanh_toan);
 
-  // Tính toán chỉ số tài chính
-  const totalCodGenerated = codOrders.reduce((acc, o) => acc + (o.tien_thu_ho_cod || 0), 0);
-  const collectedCod = codOrders
-    .filter((o) => o.trang_thai === 'GIAO_THANH_CONG')
-    .reduce((acc, o) => acc + (o.tien_thu_ho_cod || 0), 0);
-  const inTransitCod = codOrders
-    .filter((o) => ['DANG_GIAO', 'DA_LAY_HANG'].includes(o.trang_thai))
-    .reduce((acc, o) => acc + (o.tien_thu_ho_cod || 0), 0);
-  const totalShippingFee = orders.reduce((acc, o) => acc + (o.cuoc_phi_van_chuyen || 0), 0);
-
   const filteredOrders = codOrders.filter((o) => {
     const isPaid = o.thanh_toan?.trang_thai === 'DA_THANH_TOAN';
     const matchFilter =
@@ -60,9 +54,13 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
     return matchFilter && matchSearch;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedOrders = filteredOrders.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   const handleSelectAll = (e) => {
     if (e.target.checked) {
-      setSelectedIds(filteredOrders.map((o) => o.id));
+      setSelectedIds(paginatedOrders.map((o) => o.id));
     } else {
       setSelectedIds([]);
     }
@@ -84,7 +82,6 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
     setProcessing(true);
     try {
       for (const id of orderIdsToSettle) {
-        // Cập nhật trạng thái đơn sang thành công nếu cần, hoặc ghi log quyết toán
         await ordersAPI.updateStatus(id, 'GIAO_THANH_CONG', 'Đã đối soát tiền COD và cước phí với khách hàng');
       }
       setSelectedIds([]);
@@ -107,15 +104,12 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-5 transition-colors duration-200">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            Trung Tâm Đối Soát Tài Chính & Thu Hộ COD
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold">
-              Quyết toán tự động
-            </span>
+            Trung Tâm Đối Soát Tài Chính &amp; Thu Hộ COD
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Minh bạch dòng tiền bưu chính, cấn trừ cước tự động và chi trả tiền thu hộ định kỳ cho đối tác
@@ -124,7 +118,10 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={fetchOrders}
+            onClick={() => {
+              fetchOrders();
+              onSettlementChanged?.();
+            }}
             className="p-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-slate-700 transition cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -139,53 +136,6 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
         </div>
       </div>
 
-      {/* KPI Financial Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="text-slate-500 dark:text-slate-400 text-xs font-medium flex items-center justify-between">
-            <span>Tổng Tiền COD Phát Sinh</span>
-            <DollarSign className="w-4 h-4 text-slate-400" />
-          </div>
-          <div className="text-xl font-black text-slate-900 dark:text-white mt-1">
-            {formatVND(totalCodGenerated)}
-          </div>
-          <div className="text-[10px] text-slate-400 mt-1">Toàn bộ đơn hàng có thu tiền hộ</div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="text-slate-500 dark:text-slate-400 text-xs font-medium flex items-center justify-between">
-            <span>COD Đã Thu Thành Công</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-          </div>
-          <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-            {formatVND(collectedCod)}
-          </div>
-          <div className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-1">Đã vào tài khoản quỹ bưu cục</div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="text-slate-500 dark:text-slate-400 text-xs font-medium flex items-center justify-between">
-            <span>COD Đang Lưu Thông</span>
-            <Clock className="w-4 h-4 text-amber-500" />
-          </div>
-          <div className="text-xl font-black text-amber-600 dark:text-amber-400 mt-1">
-            {formatVND(inTransitCod)}
-          </div>
-          <div className="text-[10px] text-amber-600/80 dark:text-amber-400/80 mt-1">Tài xế đang giữ hoặc trên đường</div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="text-slate-500 dark:text-slate-400 text-xs font-medium flex items-center justify-between">
-            <span>Doanh Thu Cước Vận Chuyển</span>
-            <Building className="w-4 h-4 text-blue-500" />
-          </div>
-          <div className="text-xl font-black text-blue-600 dark:text-blue-400 mt-1">
-            {formatVND(totalShippingFee)}
-          </div>
-          <div className="text-[10px] text-slate-400 mt-1">Đã bao gồm thuế GTGT 8%</div>
-        </div>
-      </div>
-
       {/* Action and Filter Bar */}
       <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2 w-full sm:w-80">
@@ -195,7 +145,10 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
               type="text"
               placeholder="Tìm mã vận đơn, tên shop, người nhận..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500"
             />
           </div>
@@ -216,7 +169,10 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
           {['ALL', 'PENDING', 'PAID'].map((st) => (
             <button
               key={st}
-              onClick={() => setSettlementFilter(st)}
+              onClick={() => {
+                setSettlementFilter(st);
+                setCurrentPage(1);
+              }}
               className={`px-3 py-1.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                 settlementFilter === st
                   ? 'bg-emerald-600 text-white font-semibold shadow-xs'
@@ -238,7 +194,7 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
                 <input
                   type="checkbox"
                   onChange={handleSelectAll}
-                  checked={selectedIds.length > 0 && selectedIds.length === filteredOrders.length}
+                  checked={paginatedOrders.length > 0 && paginatedOrders.every((o) => selectedIds.includes(o.id))}
                   className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                 />
               </th>
@@ -260,14 +216,14 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
                   Đang tổng hợp dữ liệu tài chính đối soát...
                 </td>
               </tr>
-            ) : filteredOrders.length === 0 ? (
+            ) : paginatedOrders.length === 0 ? (
               <tr>
                 <td colSpan="9" className="py-12 text-center text-slate-500">
                   Không có đơn hàng nào cần đối soát.
                 </td>
               </tr>
             ) : (
-              filteredOrders.map((o) => {
+              paginatedOrders.map((o) => {
                 const isPaid = o.thanh_toan?.trang_thai === 'DA_THANH_TOAN';
                 const cod = o.tien_thu_ho_cod || 0;
                 const cuoc = o.cuoc_phi_van_chuyen || 0;
@@ -331,6 +287,16 @@ export const CodReconciliation = ({ onSettlementChanged }) => {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Bar (10 - 20 - 50) */}
+      <PaginationBar
+        totalItems={filteredOrders.length}
+        pageSize={pageSize}
+        setPageSize={setPageSize}
+        currentPage={safePage}
+        setCurrentPage={setCurrentPage}
+        itemLabel="đơn đối soát"
+      />
     </div>
   );
 };
