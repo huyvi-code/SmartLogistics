@@ -2,6 +2,10 @@ import random
 from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
+import os
+import base64
+import json
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc
 
@@ -11,6 +15,7 @@ from app.models.models import (
     TrangThaiDonHang, MucDoUuTien, VaiTroNguoiDung, PhuongThucThanhToan
 )
 from app.schemas.schemas import (
+    PodSubmitRequest, PodDetailResponse,
     DonHangOut, DonHangCreate, DonHangStatusUpdate, DonHangAssignDriver,
     FeeCalculationRequest, FeeCalculationResponse
 )
@@ -253,3 +258,184 @@ def assign_driver(
     db.commit()
     db.refresh(order)
     return order
+
+
+UPLOAD_POD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "uploads", "pod")
+os.makedirs(UPLOAD_POD_DIR, exist_ok=True)
+
+@router.post("/{order_id}/pod", response_model=PodDetailResponse)
+def submit_pod(
+    order_id: int,
+    pod_data: PodSubmitRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    order = db.query(DonHang).filter(DonHang.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+
+    # Phân quyền: Chỉ tài xế phụ trách hoặc Quản lý / Điều phối
+    if current_user.vai_tro == VaiTroNguoiDung.KHACH_HANG.value:
+        raise HTTPException(status_code=403, detail="Khách hàng không có quyền thực hiện ký xác nhận POD")
+
+    if current_user.vai_tro == VaiTroNguoiDung.TAI_XE.value:
+        tai_xe = db.query(TaiXe).filter(TaiXe.user_id == current_user.id).first()
+        if not tai_xe or order.tai_xe_id != tai_xe.id:
+            raise HTTPException(status_code=403, detail="Tài xế chỉ được xác nhận POD cho đơn hàng do mình phụ trách")
+
+    receiver_name = pod_data.nguoi_nhan_ten.strip()
+    if not receiver_name:
+        raise HTTPException(status_code=400, detail="Vui lòng nhập tên người nhận thực tế")
+
+    now_iso = datetime.utcnow().isoformat()
+    has_sig = False
+    has_evidence = False
+
+    # 1. Lưu chữ ký điện tử của người nhận
+    if pod_data.chu_ky_base64:
+        sig_str = pod_data.chu_ky_base64
+        if len(sig_str) > 500 * 1024 * 4 // 3:
+            raise HTTPException(status_code=400, detail="Dung lượng chữ ký vượt quá giới hạn 500KB")
+        try:
+            encoded = sig_str.split(",", 1)[1] if "," in sig_str else sig_str
+            sig_bytes = base64.b64decode(encoded)
+            sig_path = os.path.join(UPLOAD_POD_DIR, f"{order.id}_signature.png")
+            with open(sig_path, "wb") as f:
+                f.write(sig_bytes)
+            has_sig = True
+        except Exception:
+            raise HTTPException(status_code=400, detail="Định dạng chữ ký không hợp lệ")
+
+    # 2. Lưu ảnh hiện trường kiện hàng
+    if pod_data.anh_hien_truong_base64:
+        img_str = pod_data.anh_hien_truong_base64
+        if len(img_str) > 3 * 1024 * 1024 * 4 // 3:
+            raise HTTPException(status_code=400, detail="Dung lượng ảnh hiện trường vượt quá giới hạn 3MB")
+        try:
+            encoded = img_str.split(",", 1)[1] if "," in img_str else img_str
+            img_bytes = base64.b64decode(encoded)
+            img_path = os.path.join(UPLOAD_POD_DIR, f"{order.id}_evidence.jpg")
+            with open(img_path, "wb") as f:
+                f.write(img_bytes)
+            has_evidence = True
+        except Exception:
+            raise HTTPException(status_code=400, detail="Định dạng ảnh hiện trường không hợp lệ")
+
+    # 3. Lưu metadata JSON
+    meta = {
+        "order_id": order.id,
+        "ma_van_don": order.ma_van_don,
+        "nguoi_nhan_ten": receiver_name,
+        "moi_quan_he": pod_data.moi_quan_he,
+        "ghi_chu": pod_data.ghi_chu or "",
+        "has_signature": has_sig,
+        "has_evidence": has_evidence,
+        "thoi_gian_ky": now_iso
+    }
+    meta_path = os.path.join(UPLOAD_POD_DIR, f"{order.id}_pod.json")
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    # 4. Cập nhật trạng thái đơn sang GIAO_THANH_CONG
+    order.trang_thai = TrangThaiDonHang.GIAO_THANH_CONG.value
+    order.updated_at = datetime.utcnow()
+    if order.thanh_toan:
+        order.thanh_toan.trang_thai = "DA_THANH_TOAN"
+        order.thanh_toan.ngay_thanh_toan = datetime.utcnow()
+
+    sig_note = "Đã lưu chữ ký điện tử của người nhận" if has_sig else "Khách ký giấy / xác nhận trực tiếp"
+    evi_note = "Kèm ảnh hiện trường" if has_evidence else "Không ảnh"
+    cod_note = f"Đã thu COD: {order.tien_thu_ho_cod:,.0f} đ".replace(",", ".") if order.tien_thu_ho_cod > 0 else "Không thu COD"
+    mo_ta = f"[POD Ký nhận điện tử] Người nhận: {receiver_name} ({pod_data.moi_quan_he}) | {cod_note} | {sig_note} | {evi_note}"
+    if pod_data.ghi_chu:
+        mo_ta += f" | Ghi chú: {pod_data.ghi_chu.strip()}"
+
+    log = LogTrangThai(
+        don_hang_id=order.id,
+        trang_thai=TrangThaiDonHang.GIAO_THANH_CONG.value,
+        vi_tri_hien_tai=order.nguoi_nhan_tinh_thanh,
+        mo_ta_chi_tiet=mo_ta
+    )
+    db.add(log)
+    db.commit()
+
+    return PodDetailResponse(
+        has_pod=True,
+        has_signature=has_sig,
+        has_evidence=has_evidence,
+        signature_url=f"/api/orders/{order.id}/pod/signature" if has_sig else None,
+        evidence_url=f"/api/orders/{order.id}/pod/evidence" if has_evidence else None,
+        nguoi_nhan_ten=receiver_name,
+        moi_quan_he=pod_data.moi_quan_he,
+        ghi_chu=pod_data.ghi_chu,
+        thoi_gian_ky=now_iso,
+        message="Đã lưu chứng từ POD thành công"
+    )
+
+@router.get("/{order_id}/pod", response_model=PodDetailResponse)
+def get_pod_detail(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    order = db.query(DonHang).filter(DonHang.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+
+    meta_path = os.path.join(UPLOAD_POD_DIR, f"{order.id}_pod.json")
+    if not os.path.exists(meta_path):
+        return PodDetailResponse(
+            has_pod=False,
+            has_signature=False,
+            has_evidence=False,
+            message="Chưa lưu hình chữ ký điện tử"
+        )
+
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+    except Exception:
+        return PodDetailResponse(
+            has_pod=False,
+            has_signature=False,
+            has_evidence=False,
+            message="Không thể đọc chứng từ POD"
+        )
+
+    has_sig = meta.get("has_signature", False) and os.path.exists(os.path.join(UPLOAD_POD_DIR, f"{order.id}_signature.png"))
+    has_evi = meta.get("has_evidence", False) and os.path.exists(os.path.join(UPLOAD_POD_DIR, f"{order.id}_evidence.jpg"))
+
+    return PodDetailResponse(
+        has_pod=True,
+        has_signature=has_sig,
+        has_evidence=has_evi,
+        signature_url=f"/api/orders/{order.id}/pod/signature" if has_sig else None,
+        evidence_url=f"/api/orders/{order.id}/pod/evidence" if has_evi else None,
+        nguoi_nhan_ten=meta.get("nguoi_nhan_ten"),
+        moi_quan_he=meta.get("moi_quan_he"),
+        ghi_chu=meta.get("ghi_chu"),
+        thoi_gian_ky=meta.get("thoi_gian_ky"),
+        message="Tải chứng từ POD thành công"
+    )
+
+@router.get("/{order_id}/pod/signature")
+def get_pod_signature(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    sig_path = os.path.join(UPLOAD_POD_DIR, f"{order_id}_signature.png")
+    if not os.path.exists(sig_path):
+        raise HTTPException(status_code=404, detail="Chưa lưu hình chữ ký điện tử")
+    return FileResponse(sig_path, media_type="image/png")
+
+@router.get("/{order_id}/pod/evidence")
+def get_pod_evidence(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    img_path = os.path.join(UPLOAD_POD_DIR, f"{order_id}_evidence.jpg")
+    if not os.path.exists(img_path):
+        raise HTTPException(status_code=404, detail="Chưa lưu ảnh hiện trường")
+    return FileResponse(img_path, media_type="image/jpeg")

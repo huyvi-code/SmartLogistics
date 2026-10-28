@@ -64,6 +64,14 @@ export const ordersAPI = {
     const res = await api.post('/orders/calculate-fee', data);
     return res.data;
   },
+  submitPod: async (id, podPayload) => {
+    const res = await api.post(`/orders/${id}/pod`, podPayload);
+    return res.data;
+  },
+  getPod: async (id) => {
+    const res = await api.get(`/orders/${id}/pod`);
+    return res.data;
+  },
 };
 
 export const trackingAPI = {

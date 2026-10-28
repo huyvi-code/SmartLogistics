@@ -260,3 +260,25 @@ class AIChatResponse(BaseModel):
     related_order: Optional[DonHangOut] = None
     source: str = "ai_engine"
 
+
+
+# --- POD (Proof of Delivery) Schemas ---
+class PodSubmitRequest(BaseModel):
+    nguoi_nhan_ten: str
+    moi_quan_he: str = "Chính chủ nhận hàng"
+    chu_ky_base64: Optional[str] = None
+    anh_hien_truong_base64: Optional[str] = None
+    ghi_chu: Optional[str] = None
+    tien_thu_ho_cod_da_thu: Optional[float] = 0.0
+
+class PodDetailResponse(BaseModel):
+    has_pod: bool
+    has_signature: bool = False
+    has_evidence: bool = False
+    signature_url: Optional[str] = None
+    evidence_url: Optional[str] = None
+    nguoi_nhan_ten: Optional[str] = None
+    moi_quan_he: Optional[str] = None
+    ghi_chu: Optional[str] = None
+    thoi_gian_ky: Optional[str] = None
+    message: Optional[str] = None

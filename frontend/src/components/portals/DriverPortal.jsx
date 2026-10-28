@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ordersAPI, incidentsAPI, aiAPI } from '../../api';
+import { ordersAPI, incidentsAPI, aiAPI, driversAPI } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import {
   Truck, CheckCircle2, Clock, AlertTriangle, Phone, MapPin,
@@ -31,14 +31,31 @@ export const DriverPortal = () => {
   const [driverAiGuidance, setDriverAiGuidance] = useState(null);
   const [loadingAiGuidance, setLoadingAiGuidance] = useState(false);
 
+  // Driver Profile & Vehicle Specs
+  const [driverProfile, setDriverProfile] = useState(null);
 
   const fetchDriverOrders = async () => {
     setLoading(true);
     try {
-      const data = await ordersAPI.getAll();
-      setOrders(data);
+      const [ordersRes, driversRes] = await Promise.allSettled([
+        ordersAPI.getAll(),
+        driversAPI.getAll()
+      ]);
+
+      if (ordersRes.status === 'fulfilled') {
+        setOrders(ordersRes.value || []);
+      } else {
+        console.error('Lỗi lấy danh sách đơn tài xế:', ordersRes.reason);
+      }
+
+      if (driversRes.status === 'fulfilled' && Array.isArray(driversRes.value) && user?.id) {
+        const matchedDriver = driversRes.value.find((d) => d.user_id === user.id);
+        setDriverProfile(matchedDriver || null);
+      } else if (driversRes.status === 'rejected') {
+        console.warn('Lỗi lấy hồ sơ phương tiện tài xế:', driversRes.reason);
+      }
     } catch (err) {
-      console.error('Lỗi lấy đơn tài xế:', err);
+      console.error('Lỗi bất ngờ khi tải dữ liệu DriverPortal:', err);
     } finally {
       setLoading(false);
     }
@@ -46,7 +63,7 @@ export const DriverPortal = () => {
 
   useEffect(() => {
     fetchDriverOrders();
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     if (!incidentOrder) return;
@@ -69,14 +86,14 @@ export const DriverPortal = () => {
     }
   };
 
-  const handlePodConfirm = async (podDescription) => {
+  const handlePodConfirm = async (podPayload) => {
     if (!podOrder) return;
     try {
-      await ordersAPI.updateStatus(podOrder.id, 'GIAO_THANH_CONG', podDescription, `Giao thành công tại ${podOrder.nguoi_nhan_tinh_thanh}`);
+      await ordersAPI.submitPod(podOrder.id, podPayload);
       setPodOrder(null);
       fetchDriverOrders();
     } catch (err) {
-      alert('Lỗi cập nhật hoàn tất POD');
+      alert(err.response?.data?.detail || 'Lỗi cập nhật hoàn tất chứng từ POD');
     }
   };
 
@@ -122,26 +139,45 @@ export const DriverPortal = () => {
   const formatVND = (v) => new Intl.NumberFormat('vi-VN').format(v || 0) + ' đ';
 
 
-  const totalOrders = orders.length;
-  const needPickup = orders.filter((o) => o.trang_thai === 'DA_LAY_HANG').length;
-  const inTransit = orders.filter((o) => o.trang_thai === 'DANG_GIAO').length;
-  const completed = orders.filter((o) => o.trang_thai === 'GIAO_THANH_CONG').length;
-  const activeOrders = needPickup + inTransit;
-  const totalCODToHandover = orders
-    .filter((o) => o.trang_thai === 'GIAO_THANH_CONG')
-    .reduce((sum, o) => sum + (o.tien_thu_ho_cod || 0), 0);
+  // Đảm bảo chỉ xử lý các đơn hàng thuộc về tài xế được xác thực
+  const assignedOrders = driverProfile?.id
+    ? orders.filter((o) => o.tai_xe_id === driverProfile.id)
+    : orders;
 
-  // Sức chứa & tải trọng xe
-  const maxPayloadKg = 1250.0; // Định mức xe tải 1.25 tấn
-  const currentWeightOnTruck = orders
-    .filter((o) => ['DA_LAY_HANG', 'DANG_GIAO'].includes(o.trang_thai))
-    .reduce((sum, o) => sum + (o.khoi_luong_kg || 0), 0);
-  const remainingWeightKg = Math.max(0, maxPayloadKg - currentWeightOnTruck);
-  const loadPercentage = Math.min(100, Math.round((currentWeightOnTruck / maxPayloadKg) * 100));
+  const totalOrders = assignedOrders.length;
+  const needPickup = assignedOrders.filter((o) => o.trang_thai === 'DA_LAY_HANG').length;
+  const inTransit = assignedOrders.filter((o) => o.trang_thai === 'DANG_GIAO').length;
+  const completed = assignedOrders.filter((o) => o.trang_thai === 'GIAO_THANH_CONG').length;
+  const activeOrders = needPickup + inTransit;
+  const totalCODToHandover = assignedOrders
+    .filter((o) => o.trang_thai === 'GIAO_THANH_CONG')
+    .reduce((sum, o) => {
+      const cod = Number(o.tien_thu_ho_cod);
+      return sum + (Number.isFinite(cod) && cod > 0 ? cod : 0);
+    }, 0);
+
+  // Sức chứa & tải trọng xe theo hồ sơ phương tiện thực tế
+  const parsedMaxPayload = Number(driverProfile?.tai_trong_kg);
+  const hasPayloadInfo = Number.isFinite(parsedMaxPayload) && parsedMaxPayload > 0;
+  const maxPayloadKg = hasPayloadInfo ? parsedMaxPayload : undefined;
+
+  const currentWeightOnTruck = Math.round(
+    assignedOrders
+      .filter((o) => ['DA_LAY_HANG', 'DANG_GIAO'].includes(o.trang_thai))
+      .reduce((sum, o) => {
+        const w = Number(o.khoi_luong_kg);
+        return sum + (Number.isFinite(w) && w > 0 ? w : 0);
+      }, 0) * 10
+  ) / 10;
+  const remainingWeightKg = hasPayloadInfo ? Math.max(0, Math.round((maxPayloadKg - currentWeightOnTruck) * 10) / 10) : 0;
+  const loadPercentage = hasPayloadInfo ? Math.min(100, Math.round((currentWeightOnTruck / maxPayloadKg) * 100)) : 0;
+  const vehicleInfo = driverProfile
+    ? `${driverProfile.loai_xe || 'Xe vận chuyển'}${driverProfile.bien_so_xe ? ` (${driverProfile.bien_so_xe})` : ''} • Tải định mức: ${hasPayloadInfo ? `${maxPayloadKg} kg` : 'Chưa xác định'}`
+    : 'Chưa cấu hình phương tiện';
 
   // Tỷ lệ hoàn thành ca giao
   const shiftCompletionRate = totalOrders > 0 ? Math.round((completed / totalOrders) * 100) : 0;
-  const failedOrders = orders.filter((o) => o.trang_thai === 'THAT_BAI').length;
+  const failedOrders = assignedOrders.filter((o) => o.trang_thai === 'THAT_BAI').length;
   const isShiftComplete = totalOrders > 0 && completed === totalOrders;
 
   return (
@@ -163,7 +199,7 @@ export const DriverPortal = () => {
               <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex flex-wrap items-center gap-3">
                 <span>Số điện thoại: <strong className="text-slate-700 dark:text-slate-200">{user.so_dien_thoai}</strong></span>
                 <span>•</span>
-                <span>Phương tiện: <strong className="text-slate-700 dark:text-slate-200">Xe tải chuyên dụng (Tải định mức: {maxPayloadKg} kg)</strong></span>
+                <span>Phương tiện: <strong className="text-slate-700 dark:text-slate-200">{vehicleInfo}</strong></span>
               </div>
             </div>
           </div>
@@ -215,38 +251,53 @@ export const DriverPortal = () => {
               <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <Scale className="w-4 h-4 text-blue-500" /> Sức Chứa Thùng Xe & Tải Trọng
               </span>
-              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                loadPercentage >= 90
-                  ? 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
-                  : loadPercentage >= 70
-                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-              }`}>
-                {loadPercentage >= 90 ? '⚠️ Đã Đủ Tải Tối Đa' : loadPercentage >= 70 ? '⚡ Tải Trọng Tối Ưu' : '✅ Còn Rộng Chỗ'}
-              </span>
+              {hasPayloadInfo ? (
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                  loadPercentage >= 90
+                    ? 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
+                    : loadPercentage >= 70
+                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                }`}>
+                  {loadPercentage >= 90 ? '⚠️ Đã Đủ Tải Tối Đa' : loadPercentage >= 70 ? '⚡ Tải Trọng Tối Ưu' : '✅ Còn Rộng Chỗ'}
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20">
+                  ℹ️ Chưa cấu hình tải
+                </span>
+              )}
             </div>
 
             <div>
               <div className="flex items-baseline justify-between mb-1.5">
                 <span className="text-xs text-slate-500 dark:text-slate-400">Đang chở trên xe:</span>
                 <span className="text-sm font-bold text-slate-900 dark:text-white">
-                  {currentWeightOnTruck} kg <span className="text-xs font-normal text-slate-400">/ {maxPayloadKg} kg</span> ({loadPercentage}%)
+                  {currentWeightOnTruck} kg{' '}
+                  {hasPayloadInfo ? (
+                    <>
+                      <span className="text-xs font-normal text-slate-400">/ {maxPayloadKg} kg</span> ({loadPercentage}%)
+                    </>
+                  ) : (
+                    <span className="text-xs font-normal text-slate-400">/ Chưa xác định</span>
+                  )}
                 </span>
               </div>
               <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
-                    loadPercentage >= 90 ? 'bg-red-500' : loadPercentage >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                    !hasPayloadInfo ? 'bg-slate-300 dark:bg-slate-600' : loadPercentage >= 90 ? 'bg-red-500' : loadPercentage >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
                   }`}
-                  style={{ width: `${loadPercentage}%` }}
+                  style={{ width: `${hasPayloadInfo ? loadPercentage : 0}%` }}
                 />
               </div>
             </div>
 
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {loadPercentage >= 90
-                ? 'Thùng xe đã đạt đủ tải trọng định mức an toàn (không nên nhận thêm kiện hàng nặng để tránh quá tải).'
-                : `Thùng xe còn có thể nhận thêm tối đa ${remainingWeightKg} kg hàng hóa từ điều phối viên.`}
+              {hasPayloadInfo
+                ? loadPercentage >= 90
+                  ? 'Thùng xe đã đạt đủ tải trọng định mức an toàn (không nên nhận thêm kiện hàng nặng để tránh quá tải).'
+                  : `Thùng xe còn có thể nhận thêm tối đa ${remainingWeightKg} kg hàng hóa từ điều phối viên.`
+                : 'Chưa xác định định mức tải trọng xe cho tài xế này. Vui lòng liên hệ quản lý đội xe để cập nhật phương tiện.'}
             </p>
           </div>
 
@@ -301,7 +352,7 @@ export const DriverPortal = () => {
             <p className="text-xs text-slate-500 dark:text-slate-400">Danh sách các vận đơn được phân công trực tiếp cho bạn</p>
           </div>
           <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-            {orders.length} đơn được gán
+            {assignedOrders.length} đơn được gán
           </span>
         </div>
 
@@ -310,7 +361,7 @@ export const DriverPortal = () => {
             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-500" />
             Đang tải dữ liệu chuyến xe...
           </div>
-        ) : orders.length === 0 ? (
+        ) : assignedOrders.length === 0 ? (
           <div className="py-12 text-center text-slate-500 bg-slate-50 dark:bg-slate-800/20 rounded-2xl border border-slate-200 dark:border-slate-800/80">
             <Package className="w-10 h-10 mx-auto text-slate-400 mb-2" />
             <div className="text-sm font-semibold text-slate-700 dark:text-slate-300">Hiện tại bạn chưa có đơn hàng nào được phân công</div>
@@ -318,7 +369,7 @@ export const DriverPortal = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {orders.map((o) => (
+            {assignedOrders.map((o) => (
               <div
                 key={o.id}
                 className="bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl transition space-y-4 flex flex-col justify-between"

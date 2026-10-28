@@ -16,9 +16,11 @@ class Settings(BaseSettings):
     
     # Optional Gemini / Generative AI Key
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
     class Config:
         case_sensitive = True
         extra = "ignore"
+        env_file = ".env"
 
 settings = Settings()

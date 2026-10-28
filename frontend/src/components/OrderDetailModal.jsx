@@ -1,14 +1,53 @@
 import React, { useState, useEffect } from 'react';
 import { ordersAPI, incidentsAPI, aiAPI } from '../api';
 import {
-  X, Package, MapPin, Truck, Clock, AlertTriangle, CheckCircle2,
+  X, Package, MapPin, Truck, Clock, AlertTriangle, CheckCircle2, PenTool, Camera,
   ChevronRight, User, Phone, DollarSign, Sparkles, ShieldCheck, RefreshCw, Navigation, Printer
 } from 'lucide-react';
 import { PrintShippingLabelModal } from './PrintShippingLabelModal';
+import { PodSignatureModal } from './PodSignatureModal';
 
 export const OrderDetailModal = ({ order, isOpen, onClose, onRefresh }) => {
   const [updating, setUpdating] = useState(false);
   const [isPrintOpen, setIsPrintOpen] = useState(false);
+  const [isPodOpen, setIsPodOpen] = useState(false);
+  const [podData, setPodData] = useState(null);
+  const [loadingPod, setLoadingPod] = useState(false);
+
+  const fetchPodData = async (orderId) => {
+    if (!orderId) return;
+    setLoadingPod(true);
+    try {
+      const data = await ordersAPI.getPod(orderId);
+      setPodData(data);
+    } catch (err) {
+      setPodData(null);
+    } finally {
+      setLoadingPod(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && order && order.trang_thai === 'GIAO_THANH_CONG') {
+      fetchPodData(order.id);
+    } else {
+      setPodData(null);
+    }
+  }, [isOpen, order?.id, order?.trang_thai]);
+
+  const handlePodConfirm = async (podPayload) => {
+    try {
+      setUpdating(true);
+      await ordersAPI.submitPod(order.id, podPayload);
+      setIsPodOpen(false);
+      if (onRefresh) onRefresh();
+      fetchPodData(order.id);
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Lỗi cập nhật hoàn tất chứng từ POD');
+    } finally {
+      setUpdating(false);
+    }
+  };
   const [showIncidentForm, setShowIncidentForm] = useState(false);
   const [incidentType, setIncidentType] = useState('Khách hẹn lại ngày khác');
   const [incidentDesc, setIncidentDesc] = useState('');
@@ -164,10 +203,10 @@ export const OrderDetailModal = ({ order, isOpen, onClose, onRefresh }) => {
               <>
                 <button
                   disabled={updating}
-                  onClick={() => handleUpdateStatus('GIAO_THANH_CONG')}
-                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition cursor-pointer"
+                  onClick={() => setIsPodOpen(true)}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition cursor-pointer flex items-center gap-1"
                 >
-                  Giao thành công
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Giao thành công (Ký POD)
                 </button>
                 <button
                   onClick={() => setShowIncidentForm(!showIncidentForm)}
@@ -458,6 +497,84 @@ export const OrderDetailModal = ({ order, isOpen, onClose, onRefresh }) => {
           </div>
         )}
 
+        {/* Chứng từ Ký nhận Giao hàng Điện tử (e-POD) nếu đơn đã giao thành công */}
+        {order.trang_thai === 'GIAO_THANH_CONG' && (
+          <div className="mb-6 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" /> Chứng Từ Giao Hàng & Ký Nhận Điện Tử (e-POD)
+              </h3>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" /> Đã Giao Thành Công
+              </span>
+            </div>
+
+            {(() => {
+              const podLog = order.logs?.find((lg) => lg.mo_ta_chi_tiet?.includes('[POD') || lg.trang_thai === 'GIAO_THANH_CONG');
+              return (
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-emerald-500/20 text-xs text-slate-800 dark:text-slate-200 space-y-2">
+                  <div className="font-semibold text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                    {podLog?.mo_ta_chi_tiet || `Đơn hàng đã được phát thành công tới người nhận ${order.nguoi_nhan_ten}.`}
+                  </div>
+                  {podLog?.vi_tri_hien_tai && (
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-emerald-500" /> Điểm phát: {podLog.vi_tri_hien_tai}
+                    </div>
+                  )}
+                  {podLog?.thoi_gian && (
+                    <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-slate-400" /> Xác nhận lúc: {new Date(podLog.thoi_gian).toLocaleTimeString('vi-VN')} {new Date(podLog.thoi_gian).toLocaleDateString('vi-VN')}
+                    </div>
+                  )}
+
+                  {/* Hiển thị Chữ Ký Điện Tử Thực Tế Của Người Nhận */}
+                  {podData?.has_signature && podData?.signature_url ? (
+                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+                        <PenTool className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        Chữ ký điện tử của người nhận:
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 inline-block shadow-inner">
+                        <img
+                          src={podData.signature_url}
+                          alt="Chữ ký điện tử của người nhận"
+                          className="h-20 w-auto max-w-[280px] object-contain block"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+                        <span>Chưa lưu hình chữ ký (Đơn hàng ký giấy xác nhận hoặc đơn cũ chưa đính kèm chữ ký)</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Hiển thị Ảnh Chụp Hiện Trường Kiện Hàng (nếu có) */}
+                  {podData?.has_evidence && podData?.evidence_url && (
+                    <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                      <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+                        <Camera className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                        Ảnh chụp kiện hàng hiện trường:
+                      </div>
+                      <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 max-w-xs shadow-xs">
+                        <img
+                          src={podData.evidence_url}
+                          alt="Ảnh hiện trường kiện hàng"
+                          className="max-h-40 w-full object-cover cursor-pointer hover:opacity-95 transition"
+                          onClick={() => window.open(podData.evidence_url, '_blank')}
+                          title="Bấm để mở xem ảnh gốc"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {/* Timeline Log Hành Trình */}
         <div>
           <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-1.5">
@@ -499,6 +616,14 @@ export const OrderDetailModal = ({ order, isOpen, onClose, onRefresh }) => {
       isOpen={isPrintOpen}
       onClose={() => setIsPrintOpen(false)}
       orders={order ? [order] : []}
+    />
+
+    {/* Proof of Delivery (POD) Modal */}
+    <PodSignatureModal
+      isOpen={isPodOpen}
+      onClose={() => setIsPodOpen(false)}
+      order={order}
+      onConfirmSuccess={handlePodConfirm}
     />
   </div>
   );

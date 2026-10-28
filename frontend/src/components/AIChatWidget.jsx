@@ -5,6 +5,127 @@ import {
   Clock, CheckCircle2, AlertTriangle, ArrowRight, RefreshCw, Minimize2
 } from 'lucide-react';
 
+// Safe Markdown & Anti-LaTeX Content Renderer
+const cleanLatex = (text) => {
+  if (!text) return '';
+  return text
+    .replace(/\\times/g, '×')
+    .replace(/\\cdot/g, '·')
+    .replace(/\\text\{([^}]+)\}/g, '$1')
+    .replace(/\\mathbf\{([^}]+)\}/g, '$1')
+    .replace(/\\textbf\{([^}]+)\}/g, '$1')
+    .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '$1/$2')
+    .replace(/\\\*/g, '*')
+    .replace(/\\\$/g, '$')
+    .replace(/\$\$([^$]+)\$\$/g, '$1')
+    .replace(/\$([^$]+)\$/g, '$1');
+};
+
+const renderInline = (str, keyPrefix = '') => {
+  if (!str) return null;
+  const tokens = [];
+  const regex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(str)) !== null) {
+    if (match.index > lastIndex) {
+      tokens.push(str.substring(lastIndex, match.index));
+    }
+    tokens.push(match[0]);
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < str.length) {
+    tokens.push(str.substring(lastIndex));
+  }
+
+  return tokens.map((token, i) => {
+    const k = `${keyPrefix}-${i}`;
+    if (token.startsWith('`') && token.endsWith('`') && token.length > 2) {
+      return (
+        <code
+          key={k}
+          className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[11px] text-orange-600 dark:text-orange-400 border border-slate-200/50 dark:border-slate-700/50"
+        >
+          {token.slice(1, -1)}
+        </code>
+      );
+    }
+    if (token.startsWith('**') && token.endsWith('**') && token.length > 4) {
+      return (
+        <strong key={k} className="font-bold text-slate-900 dark:text-white">
+          {token.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (token.startsWith('*') && token.endsWith('*') && token.length > 2) {
+      return (
+        <em key={k} className="italic text-slate-700 dark:text-slate-300">
+          {token.slice(1, -1)}
+        </em>
+      );
+    }
+    return token;
+  });
+};
+
+export const FormattedMessage = ({ content }) => {
+  if (!content) return null;
+  const cleaned = cleanLatex(content);
+  const lines = cleaned.split('\n');
+
+  return (
+    <div className="space-y-1.5 leading-relaxed">
+      {lines.map((line, index) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <div key={index} className="h-1.5" />;
+        }
+
+        // Heading: ### Heading or ## Heading
+        if (trimmed.startsWith('### ') || trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
+          const headingText = trimmed.replace(/^#+\s*/, '');
+          return (
+            <div key={index} className="font-bold text-slate-900 dark:text-white text-xs pt-1">
+              {renderInline(headingText, `h-${index}`)}
+            </div>
+          );
+        }
+
+        // Bullet point: - item, * item, • item
+        if (/^[-*•]\s+/.test(trimmed)) {
+          const bulletText = trimmed.replace(/^[-*•]\s+/, '');
+          return (
+            <div key={index} className="flex items-start gap-1.5 pl-1 text-slate-800 dark:text-slate-200">
+              <span className="text-orange-500 font-bold shrink-0 mt-0.5">•</span>
+              <span className="flex-1">{renderInline(bulletText, `b-${index}`)}</span>
+            </div>
+          );
+        }
+
+        // Numbered item: 1. item, 2. item
+        const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+        if (numMatch) {
+          const [, num, itemText] = numMatch;
+          return (
+            <div key={index} className="flex items-start gap-1.5 pl-1 text-slate-800 dark:text-slate-200">
+              <span className="font-bold text-orange-600 dark:text-orange-400 shrink-0 text-[11px]">{num}.</span>
+              <span className="flex-1">{renderInline(itemText, `n-${index}`)}</span>
+            </div>
+          );
+        }
+
+        // Standard line
+        return (
+          <div key={index} className="text-slate-800 dark:text-slate-200">
+            {renderInline(line, `l-${index}`)}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export const AIChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [inputMessage, setInputMessage] = useState('');
@@ -184,13 +305,13 @@ export const AIChatWidget = () => {
                 className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
               >
                 <div
-                  className={`max-w-[85%] p-3.5 rounded-2xl whitespace-pre-line leading-relaxed ${
+                  className={`max-w-[85%] p-3.5 rounded-2xl leading-relaxed ${
                     msg.sender === 'user'
-                      ? 'bg-orange-500 text-white rounded-br-xs shadow-sm font-medium'
+                      ? 'bg-orange-500 text-white rounded-br-xs shadow-sm font-medium whitespace-pre-line'
                       : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-bl-xs shadow-xs'
                   }`}
                 >
-                  {msg.text}
+                  {msg.sender === 'user' ? msg.text : <FormattedMessage content={msg.text} />}
                 </div>
 
                 {/* Related Order Card inside Chat */}
