@@ -12,6 +12,27 @@ from app.schemas.schemas import (
 from app.services.fee_service import calculate_shipping_fee
 from app.schemas.schemas import FeeCalculationRequest
 
+def clean_markdown_and_latex(text: str) -> str:
+    """
+    Chuẩn hóa nội dung phản hồi từ AI:
+    - Loại bỏ và thay thế các ký tự / cú pháp LaTeX (\times, \cdot, \text, \mathbf, v.v.)
+    - Chuyển thành định dạng phép tính số học và văn bản tiếng Việt tự nhiên
+    """
+    if not text:
+        return ""
+    text = re.sub(r'\\times', '×', text)
+    text = re.sub(r'\\cdot', '·', text)
+    text = re.sub(r'\\text\{([^}]+)\}', r'\1', text)
+    text = re.sub(r'\\mathbf\{([^}]+)\}', r'\1', text)
+    text = re.sub(r'\\textbf\{([^}]+)\}', r'\1', text)
+    text = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'\1/\2', text)
+    text = re.sub(r'\\\*', '*', text)
+    text = re.sub(r'\\\([^\)]+\)', '', text)
+    text = re.sub(r'\$\$([^$]+)\$\$', r'\1', text)
+    text = re.sub(r'\$([^$]+)\$', r'\1', text)
+    return text.strip()
+
+
 def generate_incident_solution(order_id: int, loai_su_co: str, mo_ta: str, db: Session) -> IncidentSolutionResponse:
     """
     Module 1: AI Phân tích & Gợi ý giải quyết sự cố giao hàng (Incident Diagnosis & Resolution Copilot)
@@ -36,7 +57,7 @@ Yêu cầu câu trả lời:
 - 3 bước hành động cụ thể tiếp theo cho điều phối viên.
 Trả lời bằng tiếng Việt ngắn gọn, súc tích, chuyên nghiệp.
 """
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
             payload = {"contents": [{"parts": [{"text": prompt}]}]}
             with httpx.Client(timeout=8.0) as client:
                 resp = client.post(url, json=payload)
@@ -44,11 +65,12 @@ Trả lời bằng tiếng Việt ngắn gọn, súc tích, chuyên nghiệp.
                     data = resp.json()
                     ai_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                     if ai_text:
+                        clean_ai_text = clean_markdown_and_latex(ai_text)
                         severity = "KHAN_CAP" if any(k in mo_ta.lower() for k in ["hư", "móp", "từ chối", "mất"]) else "TRUNG_BINH"
                         return IncidentSolutionResponse(
                             muc_do_nghiem_trong=severity,
                             nguyen_nhan_du_doan=f"Phân tích AI: {loai_su_co} do yếu tố hiện trường giao nhận.",
-                            bien_phap_khac_phuc_goi_y=ai_text.strip(),
+                            bien_phap_khac_phuc_goi_y=clean_ai_text,
                             hanh_dong_tiep_theo=[
                                 "Liên hệ khách hàng xác nhận lại thông tin và thỏa thuận khung giờ mới",
                                 "Cập nhật thời gian phát hàng dự kiến mới trên phần mềm TMS",
@@ -118,10 +140,13 @@ Trả lời bằng tiếng Việt ngắn gọn, súc tích, chuyên nghiệp.
 
 def chat_with_logistics_ai(message: str, current_user: Optional[User], db: Session) -> AIChatResponse:
     """
-    Module 2: Chatbot AI Tra cứu Vận đơn & Tư vấn Logistics thông minh
-    - Tự động nhận diện mã vận đơn (VN2026-xxxx hoặc số hiệu 4 chữ số) để tra cứu dữ liệu thời gian thực
-    - Trả về câu trả lời tự nhiên kèm đối tượng related_order để hiển thị thẻ vận đơn
-    - Hỗ trợ tra cước, chính sách giao hàng, tình trạng đơn hàng
+    Module 2: Chatbot AI Tra cứu Vận đơn & CSKH Logistics Thông Minh
+    Tuân thủ quy chuẩn tài liệu đặc tả SRS (UC008) và hướng dẫn nghiệp vụ TMS:
+    - Tập trung chuyên trách vào CSKH bưu chính, biểu cước, quy chuẩn đóng gói, chính sách và tra cứu vận đơn.
+    - Phân loại ý định người dùng (Nhóm A, B, C, D, E) theo tài liệu dự án.
+    - Từ chối lịch sự các câu hỏi hoàn toàn ngoài phạm vi nghiệp vụ (Nhóm C).
+    - Hỗ trợ câu hỏi liên quan một phần (Nhóm B) mà không lan man kiến thức ngoài ngành.
+    - Giữ nguyên 100% 12 nhánh Fallback CSKH khi thiếu API Key hoặc lỗi dịch vụ.
     """
     clean_msg = message.strip()
     related_order_data = None
@@ -130,6 +155,7 @@ def chat_with_logistics_ai(message: str, current_user: Optional[User], db: Sessi
     # 1. Nhận diện mã vận đơn trong tin nhắn (VD: VN2026-8801, VN2026-8804 hoặc 8801, 8802...)
     order_match = re.search(r'(VN\d{4}-\d{4}|\b\d{4}\b)', clean_msg, re.IGNORECASE)
     order_context_str = ""
+    query_code = ""
 
     if order_match:
         matched_str = order_match.group(1).upper()
@@ -142,8 +168,6 @@ def chat_with_logistics_ai(message: str, current_user: Optional[User], db: Sessi
         if order:
             related_order_data = DonHangOut.model_validate(order)
             driver_info = f"Tài xế {order.tai_xe.ho_ten} ({order.tai_xe.so_dien_thoai})" if order.tai_xe else "Chưa gán tài xế"
-            
-            # Lấy mốc log mới nhất
             latest_log = order.logs[0].mo_ta_chi_tiet if order.logs else "Chưa có sự kiện"
 
             order_context_str = (
@@ -163,6 +187,20 @@ def chat_with_logistics_ai(message: str, current_user: Optional[User], db: Sessi
                 "Báo sự cố đơn hàng này",
                 "Tính cước đơn mới"
             ]
+        else:
+            order_context_str = f"\n[KẾT QUẢ TRA CỨU]: Khách hàng có nhập mã '{query_code}', nhưng KHÔNG tìm thấy đơn hàng này trong cơ sở dữ liệu SmartLogistics."
+            suggested_actions = [
+                "Tra cứu đơn VN2026-8801",
+                "Bảng giá cước",
+                "Hotline 1900-8800"
+            ]
+
+    if not suggested_actions:
+        suggested_actions = [
+            "Tra cứu đơn VN2026-8801",
+            "Bảng giá cước",
+            "Hotline 1900-8800"
+        ]
 
     # 2. Nếu có cấu hình GEMINI_API_KEY, truy vấn Generative AI (RAG pattern với tri thức CSKH chuyên sâu)
     if settings.GEMINI_API_KEY:
@@ -171,21 +209,45 @@ def chat_with_logistics_ai(message: str, current_user: Optional[User], db: Sessi
 Bạn là Chuyên viên CSKH & Trợ lý AI Thông minh của Hệ thống Vận tải Giao hàng SmartLogistics TMS (Việt Nam).
 Người đang trò chuyện: {current_user.ho_ten if current_user else 'Khách hàng / Đối tác'}.
 
-TÀI LIỆU QUY CHUẨN CSKH CỦA HỆ THỐNG:
-1. Bảng cước vận chuyển:
-   - Nội tỉnh: 22.000 đ (1kg đầu), vượt 1kg: +5.000 đ/kg.
-   - Liên tỉnh: 38.000 đ (1kg đầu), vượt 1kg: +5.000 đ/kg.
-   - Phí COD: 1% giá trị thu hộ (miễn phí nội tỉnh < 1 triệu đ).
-2. Thời gian giao hàng:
+TÀI LIỆU QUY CHUẨN BẢNG CƯỚC & CHÍNH SÁCH BƯU CHÍNH CỦA SMARTLOGISTICS:
+1. Công thức tính cước vận chuyển chuẩn (fee_service.py):
+   Tổng cước vận chuyển = Phí cơ bản + Phí khối lượng vượt + Phí COD
+   - Phí cơ bản (cho 1.0 kg đầu tiên theo 4 phân vùng địa lý):
+     * Nội thành / Cùng tỉnh thành: 22.000đ
+     * Liên tỉnh cùng miền (Nội miền Bắc hoặc Nội miền Nam, vd: Hà Nội - Hải Phòng, TP.HCM - Cần Thơ): 35.000đ
+     * Tuyến liên miền lân cận (Bắc - Trung hoặc Trung - Nam, vd: Hà Nội - Đà Nẵng, Đà Nẵng - TP.HCM): 55.000đ
+     * Trục Bắc - Nam xuyên Việt (Hà Nội - TP.HCM): 75.000đ
+     (LƯU Ý BẮT BUỘC: Tuyệt đối KHÔNG mặc định mọi tuyến liên tỉnh đều là 38.000đ!).
+   - Phụ phí khối lượng vượt mức (> 1.0 kg):
+     * Nếu khối lượng bưu gửi > 1.0 kg: Mỗi 1kg vượt thêm tính phụ thu 5.000đ/kg.
+     * Ví dụ: Kiện 15kg trục Bắc - Nam (Hà Nội - TP.HCM):
+       Phí cơ bản = 75.000đ, Phụ phí vượt = (15 - 1) × 5.000đ = 14 × 5.000đ = 70.000đ.
+       Cước vận chuyển = 75.000đ + 70.000đ = 145.000đ.
+   - Phí dịch vụ thu hộ COD (1% tiền COD):
+     * Phí COD = 1% × Tiền thu hộ COD (chỉ tính khi người gửi có yêu cầu thu hộ tiền từ người nhận).
+     * Nếu người gửi KHÔNG yêu cầu thu hộ (không có COD hoặc khách đã thanh toán trước), tiền COD = 0đ và Phí COD = 0đ.
+     * NGUYÊN TẮC: Giá trị hàng hóa KHÔNG PHẢI là số tiền COD! (Ví dụ kiện hàng trị giá 5.000.000đ nhưng không yêu cầu thu hộ COD thì phí COD là 0đ).
+   - YÊU CẦU ĐẦY ĐỦ ĐỊA BÀN GỬI/NHẬN:
+     * Nếu người dùng hỏi tính cước nhưng CHƯA NÊU RÕ tỉnh/thành gửi và tỉnh/thành nhận (ví dụ chỉ nói 'tính cước cho kiện 2kg'):
+     * BẮT BUỘC HỎI LẠI: Đề nghị cung cấp cụ thể Tỉnh gửi và Tỉnh nhận, cân nặng kiện hàng, và có yêu cầu thu hộ tiền COD không.
+
+QUY TẮC ĐỊNH DẠNG BẮT BUỘC (ANTI-LATEX):
+- Trả lời bằng tiếng Việt rõ ràng, dễ đọc, tự nhiên.
+- TUYỆT ĐỐI KHÔNG sử dụng ký hiệu LaTeX (như \times, \cdot, \text, \mathbf, \textbf, \frac, hoặc cặp dấu $ / $$).
+- Viết các phép tính số học dạng chuỗi thông thường. Ví dụ: '14 × 5.000đ = 70.000đ'.
+- Định dạng tiền tệ Việt Nam dạng: '113.500đ' hoặc '113.500 đ'.
+- Tránh lặp lại câu chào hỏi dài dòng trong mỗi lượt trả lời.
+2. Thời gian giao hàng cam kết:
    - Hỏa tốc (Flash 2H): giao trong 2 giờ nội thành.
    - Ưu tiên (Same-day): giao trong ngày (4-8 giờ).
    - Tiêu chuẩn (Standard): 24-48 giờ toàn quốc.
 3. Hàng cấm & có điều kiện:
    - Cấm tuyệt đối: Vũ khí, chất nổ, ma túy, tiền mặt, vàng bạc, động vật sống quý hiếm.
-   - Có điều kiện: Nước hoa/chất lỏng phải bọc màng co nắp và chèn xốp bóng khí; đồ điện tử pin < 100Wh; thực phẩm khô có nhãn mác.
+   - Có điều kiện: Nước hoa/chất lỏng phải bọc màng co nắp và chèn xốp bóng khí (tối đa 500ml/chai); đồ điện tử pin < 100Wh; thực phẩm khô có nhãn mác.
 4. Quy chuẩn đóng gói:
    - Hàng dễ vỡ (gốm sứ, thủy tinh, mỹ phẩm): quấn 3-4 lớp bọt khí (bubble wrap), chèn 6 mặt hộp, dán nhãn "HÀNG DỄ VỠ".
    - Quần áo: túi ni-lông niêm phong chống thấm nước.
+   - Đồ điện tử: hộp nguyên seal hoặc chèn mút xốp chống tĩnh điện.
 5. Chính sách bồi thường:
    - Đơn có bảo hiểm/khai giá (phí 1%): Bồi thường 100% giá trị khai báo khi mất mát, hư hỏng.
    - Đơn không khai giá: Bồi thường tối đa 4 lần cước vận chuyển.
@@ -195,20 +257,39 @@ TÀI LIỆU QUY CHUẨN CSKH CỦA HỆ THỐNG:
 7. Chuyển hoàn & Lưu kho:
    - Miễn phí giao lại 3 lần. Lưu kho tối đa 3 ngày trước khi chuyển hoàn (phí hoàn 50% cước đi).
 8. Xem hàng & Đồng kiểm:
-   - Mặc định cho xem hàng không thử; không cho xem nếu người gửi có ghi chú "Không xem hàng".
+   - Mặc định cho xem hàng ngoại quan, không thử; không cho xem nếu người gửi có ghi chú "Không xem hàng".
 9. Hotline & Giờ làm việc:
    - Bưu cục mở cửa: 07:30 - 18:30 (Thứ 2 - Thứ 7), Chủ Nhật nhận đơn hỏa tốc đến 12:00.
    - Hotline hỗ trợ CSKH 24/7: 1900 - 8800. Email: cskh@smartlog.vn.
+10. Quy trình Báo sự cố hiện trường:
+   - Tài xế/khách hàng báo sự cố trực tiếp qua nút 'Báo Sự Cố' trên Driver Portal hoặc Trung tâm sự cố TMS.
+   - AI Incident Copilot tự động phân tích và đưa ra giải pháp hiện trường.
 
-DỮ LIỆU ĐƠN HÀNG TRA CỨU ĐƯỢC TỪ HỆ THỐNG:
+DỮ LIỆU ĐƠN HÀNG TRA CỨU TỪ HỆ THỐNG:
 {order_context_str if order_context_str else 'Không có mã vận đơn cụ thể trong tin nhắn.'}
 
-Yêu cầu trả lời:
-- Luôn thân thiện, niềm nở, lịch sự, thấu cảm, xưng hô "SmartLogistics" và "quý khách/bạn".
-- Định dạng Markdown đẹp mắt, có bullet points, emoji sinh động, ngắn gọn súc tích.
-Tin nhắn của khách hàng: "{clean_msg}"
+NGUYÊN TẮC PHÂN LOẠI Ý ĐỊNH VÀ TRẢ LỜI (BẮT BUỘC TUÂN THỦ NGHIÊM NGẶT):
+Bạn chỉ là Trợ lý CSKH của SmartLogistics TMS, KHÔNG PHẢI AI đa năng. Hãy xác định đúng ý định của người dùng theo 5 nhóm sau:
+
+- [NHÓM A - ĐÚNG PHẠM VI]: Tra cứu đơn, phí cước, thời gian giao, đóng gói, hàng cấm, bồi thường, COD, xem hàng, giờ làm việc, hotline, cách gửi hàng.
+  -> Trả lời chính xác, nhiệt tình, định dạng Markdown rõ ràng, dựa đúng tài liệu và dữ liệu thật ở trên. Nếu mã vận đơn tra cứu báo KHÔNG TÌM THẤY, thông báo rõ ràng không tìm thấy và đề nghị kiểm tra lại mã số, không tự bịa ra thông tin đơn hàng.
+
+- [NHÓM B - LIÊN QUAN MỘT PHẦN]: Câu hỏi chứa yếu tố bên ngoài (thời tiết mưa gió, nắng nóng, thiên tai, lễ tết...) nhưng có mục đích vận chuyển rõ ràng (ví dụ: 'Trời mưa lớn có ảnh hưởng đến thời gian giao hàng không?', 'Hàng điện tử trời nắng nóng vận chuyển thế nào?').
+  -> CHỈ trả lời phần tác động đến vận chuyển, thời gian giao hoặc hướng dẫn bảo quản đóng gói kiện hàng theo tài liệu SmartLogistics. TUYỆT ĐỐI KHÔNG giải thích kiến thức khoa học, khí tượng (không giảng giải nguyên nhân tạo mưa, nhiệt lượng mặt trời...).
+
+- [NHÓM C - HOÀN TOÀN NGOÀI PHẠM VI]: Câu hỏi không liên quan đến bưu chính và vận tải (ví dụ: 'Nắng và mưa khác nhau thế nào?', 'Viết bài văn tả mùa thu', 'Giải phương trình bậc hai', 'Giải thích Machine Learning và AI tạo sinh', 'Thủ đô của nước Pháp'...).
+  -> TỪ CHỐI LỊCH SỰ TRONG 1-2 CÂU. Nêu rõ bạn là Trợ lý CSKH của SmartLogistics TMS nên chỉ hỗ trợ giải đáp về vận đơn, cước phí và dịch vụ giao nhận bưu chính; mời người dùng đặt câu hỏi liên quan đến dịch vụ của SmartLogistics.
+  -> CẤM TUYỆT ĐỐI: Không được giải thích kiến thức ngoài ngành rồi cố liên hệ sang logistics! Phải từ chối dứt khoát và lịch sự ngay.
+
+- [NHÓM D - CÂU HỎI MƠ HỒ]: Câu hỏi quá ngắn, chung chung, không rõ ý (ví dụ: 'Tôi muốn hỏi về hàng của tôi', 'Kiểm tra đơn', 'Hàng hóa').
+  -> HỎI LẠI MỘT CÂU NGẮN để làm rõ: đề nghị cung cấp mã vận đơn (dạng VN2026-xxxx hoặc 4 số cuối) hoặc cho biết cụ thể vấn đề cần hỗ trợ (cước phí, đóng gói, giao trễ...). Không tự suy đoán bừa.
+
+- [NHÓM E - TÌNH HUỐNG TÀI XẾ GẶP SỰ CỐ]: Người dùng là tài xế hoặc báo sự cố hiện trường (hàng bị ướt, móp vỡ, khách hẹn lại, không liên lạc được, khách từ chối nhận...).
+  -> Hướng dẫn sơ bộ biện pháp nghiệp vụ (chụp ảnh 4 mặt hiện trạng, giữ niêm phong) và HƯỚNG DẪN TÀI XẾ dùng chức năng 'Báo Sự Cố' trên Driver Portal (hoặc liên hệ điều phối viên bưu cục qua hotline 1900-8800) để kích hoạt Incident Copilot giải quyết. Không tự bịa trạng thái hoặc quy trình ngoài hệ thống.
+
+Tin nhắn của người dùng: "{clean_msg}"
 """
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
             payload = {"contents": [{"parts": [{"text": system_prompt}]}]}
             with httpx.Client(timeout=8.0) as client:
                 res = client.post(url, json=payload)
@@ -216,16 +297,17 @@ Tin nhắn của khách hàng: "{clean_msg}"
                     g_data = res.json()
                     ai_reply = g_data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                     if ai_reply:
+                        clean_reply = clean_markdown_and_latex(ai_reply)
                         return AIChatResponse(
-                            reply=ai_reply.strip(),
+                            reply=clean_reply,
                             suggested_actions=suggested_actions,
                             related_order=related_order_data,
-                            source="gemini_pro"
+                            source=settings.GEMINI_MODEL
                         )
         except Exception as e:
             print("Gemini Chat failed, falling back to local CSKH engine:", str(e))
 
-    # 3. Local Smart CSKH Logistics Engine (Bộ tri thức chăm sóc khách hàng toàn diện)
+    # 3. Local Smart CSKH Logistics Engine (Bộ tri thức chăm sóc khách hàng toàn diện - 12 nhánh chuẩn hóa)
     lower_msg = clean_msg.lower()
 
     # Nhánh A: Khách hỏi tra cứu và tìm thấy vận đơn
@@ -255,6 +337,86 @@ Tin nhắn của khách hàng: "{clean_msg}"
             reply=reply,
             suggested_actions=suggested_actions,
             related_order=related_order_data,
+            source="smart_nlp"
+        )
+
+    # Nhánh Bổ Sung 1: Tra cứu mã vận đơn nhưng KHÔNG tìm thấy trong hệ thống
+    if order_match and not related_order_data:
+        reply = (
+            f"🔍 **Không tìm thấy vận đơn `{query_code}` trên hệ thống SmartLogistics.**\n\n"
+            f"Quý khách vui lòng kiểm tra lại tính chính xác của mã vận đơn (định dạng: `VN2026-xxxx` hoặc 4 số cuối), "
+            f"hoặc liên hệ hotline hỗ trợ CSKH **1900 - 8800** để được kiểm tra trực tiếp."
+        )
+        return AIChatResponse(
+            reply=reply,
+            suggested_actions=["Tra cứu đơn VN2026-8801", "Bảng giá cước", "Hotline 1900-8800"],
+            source="smart_nlp"
+        )
+
+    # Nhánh Bổ Sung 2: Tình huống tài xế báo sự cố hiện trường (Nhóm E)
+    if any(k in lower_msg for k in ["báo sự cố", "gặp sự cố", "sự cố hiện trường", "bị ướt", "bị rách", "hư hỏng kiện", "khách từ chối nhận", "khách không nhận", "tôi đang giao hàng"]):
+        reply = (
+            f"⚠️ **Hướng dẫn xử lý sự cố giao nhận hiện trường (Dành cho Tài xế):**\n\n"
+            f"1. **Bảo quản & Ghi nhận hiện trạng:**\n"
+            f"   - Tài xế giữ nguyên tem niêm phong kiện hàng, chụp ảnh 4 mặt và vị trí hư hại/từ chối nhận.\n"
+            f"2. **Kích hoạt 'Báo Sự Cố' trên hệ thống TMS:**\n"
+            f"   - Trên **Driver Portal**, mở đơn hàng tương ứng và bấm nút **'Báo Sự Cố'**.\n"
+            f"   - Hệ thống và AI Incident Copilot sẽ tự động phân tích mức độ nghiêm trọng và hướng dẫn biện pháp khắc phục chuẩn.\n"
+            f"3. **Chờ chỉ đạo điều phối:**\n"
+            f"   - Không tự ý hủy hoặc hoàn đơn khi chưa có xác nhận từ điều phối viên bưu cục.\n"
+            f"   - Hotline hỗ trợ nội bộ khẩn cấp: **1900 - 8800**."
+        )
+        return AIChatResponse(
+            reply=reply,
+            suggested_actions=["Hotline hỗ trợ 1900-8800", "Chính sách bồi thường", "Quy cách đóng gói"],
+            source="smart_nlp"
+        )
+
+    # Nhánh Bổ Sung 3: Tác động thời tiết / nắng nóng đến vận chuyển (Nhóm B)
+    if any(k in lower_msg for k in ["mưa", "bão", "ngập", "thời tiết"]) and any(k in lower_msg for k in ["giao hàng", "vận chuyển", "thời gian", "ảnh hưởng", "chậm", "trễ", "an toàn"]):
+        reply = (
+            f"🌧️ **Ảnh hưởng của thời tiết đến tiến độ giao hàng:**\n\n"
+            f"- Trong điều kiện thời tiết xấu (mưa bão, ngập lụt...), thời gian giao hàng có thể bị chậm trễ hơn so với cam kết nhằm đảm bảo an toàn tuyệt đối cho tài xế và kiện hàng.\n"
+            f"- Toàn bộ kiện hàng gửi qua SmartLogistics đều được bọc túi ni-lông niêm phong chống thấm nước.\n"
+            f"- Quý khách có thể theo dõi tiến độ cập nhật của vận đơn theo thời gian thực trên Cổng Tra Cứu."
+        )
+        return AIChatResponse(
+            reply=reply,
+            suggested_actions=["Tra cứu đơn VN2026-8801", "Hotline 1900-8800", "Thời gian cam kết"],
+            source="smart_nlp"
+        )
+
+    if any(k in lower_msg for k in ["nắng", "nóng", "nhiệt độ cao"]) and any(k in lower_msg for k in ["điện tử", "linh kiện", "vận chuyển", "bảo quản", "hàng hóa"]):
+        reply = (
+            f"☀️ **Quy chuẩn bảo quản & vận chuyển hàng hóa trong điều kiện nắng nóng:**\n\n"
+            f"- Với hàng điện tử, pin hoặc sản phẩm nhạy cảm nhiệt: Kiện hàng cần đóng trong hộp carton cứng, chèn mút xốp cách nhiệt và dán kín.\n"
+            f"- Thùng xe vận tải của SmartLogistics đều có mui bạt che chắn cách nhiệt chuyên dụng, hạn chế tối đa tiếp xúc trực tiếp với ánh nắng.\n"
+            f"- Khuyến nghị sử dụng gói dịch vụ **Hỏa tốc (Flash 2H)** cho các mặt hàng cần giao gấp trong ngày."
+        )
+        return AIChatResponse(
+            reply=reply,
+            suggested_actions=["Quy cách đóng gói", "Bảng giá cước", "Gói Hỏa tốc 2H"],
+            source="smart_nlp"
+        )
+
+    # Nhánh Bổ Sung 4: Từ chối lịch sự câu hỏi ngoài phạm vi nghiệp vụ (Nhóm C)
+    out_of_scope_cues = [
+        "nắng và mưa", "mưa và nắng", "mưa là gì", "nắng là gì",
+        "viết bài văn", "viết văn", "tả mùa thu", "tả cảnh",
+        "giải phương trình", "phương trình bậc", "toán học",
+        "machine learning", "ai tạo sinh", "trí tuệ nhân tạo là gì",
+        "thủ đô của", "bài thơ", "kể chuyện cười"
+    ]
+    logistics_cues = ["giao hàng", "vận chuyển", "đơn hàng", "vận đơn", "cước", "ship", "tài xế", "bưu cục", "cod", "bưu phẩm"]
+    if any(c in lower_msg for c in out_of_scope_cues) and not any(l in lower_msg for l in logistics_cues):
+        reply = (
+            "Dạ, tôi là Trợ lý AI CSKH chuyên trách của **SmartLogistics TMS** nên chỉ có thể hỗ trợ các thông tin "
+            "về tra cứu vận đơn, cước phí và dịch vụ giao nhận bưu chính.\n\n"
+            "Quý khách vui lòng đặt câu hỏi liên quan đến bưu gửi hoặc dịch vụ vận chuyển để được hỗ trợ tốt nhất ạ!"
+        )
+        return AIChatResponse(
+            reply=reply,
+            suggested_actions=["Tra cứu đơn VN2026-8801", "Bảng giá cước", "Hotline 1900-8800"],
             source="smart_nlp"
         )
 
@@ -412,13 +574,16 @@ Tin nhắn của khách hàng: "{clean_msg}"
     # Nhánh K: Hỏi về cước phí / tính giá
     if any(k in lower_msg for k in ["cước", "giá", "bao nhiêu tiền", "phí ship", "tính giá", "bảng giá", "báo giá"]):
         reply = (
-            f"💰 **Chính sách cước vận chuyển tiêu chuẩn SmartLogistics:**\n\n"
-            f"1. **Cước cơ bản:**\n"
-            f"   - Giao nội tỉnh: **22.000 đ** (cho 1kg đầu tiên)\n"
-            f"   - Giao liên tỉnh: **38.000 đ** (cho 1kg đầu tiên)\n"
-            f"2. **Phụ phí khối lượng:** **5.000 đ** cho mỗi 1kg vượt thêm (> 1kg)\n"
-            f"3. **Phí dịch vụ thu hộ COD:** **1%** giá trị tiền thu hộ (miễn phí nội tỉnh < 1 triệu đ)\n\n"
-            f"👉 *Ví dụ: Kiện hàng 3kg gửi nội tỉnh có cước là: 22.000đ + (2 × 5.000đ) = 32.000 đ.*"
+            f"💰 **Bảng cước vận chuyển tiêu chuẩn SmartLogistics TMS:**\n\n"
+            f"1. **Cước cơ bản (cho 1.0 kg đầu tiên theo 4 phân vùng):**\n"
+            f"   - Nội thành / Cùng tỉnh thành: **22.000đ**\n"
+            f"   - Liên tỉnh cùng miền (Nội miền Bắc/Nam, vd: HN - Hải Phòng, TP.HCM - Cần Thơ): **35.000đ**\n"
+            f"   - Liên miền lân cận (Bắc - Trung hoặc Trung - Nam, vd: HN - Đà Nẵng): **55.000đ**\n"
+            f"   - Trục Bắc - Nam xuyên Việt (Hà Nội - TP.HCM): **75.000đ**\n"
+            f"2. **Phụ phí khối lượng vượt mức (> 1.0 kg):** Phụ thu **5.000đ** cho mỗi 1kg vượt thêm.\n"
+            f"3. **Phí dịch vụ thu hộ COD:** **1%** trên giá trị tiền thu hộ COD (chỉ phát sinh khi có yêu cầu thu hộ, không áp dụng nếu không có COD).\n\n"
+            f"👉 *Ví dụ: Kiện 3kg gửi cùng miền: 35.000đ + (2 × 5.000đ) = 45.000đ.*\n"
+            f"💡 *Để tính cước chính xác, quý khách vui lòng cho biết rõ **Tỉnh/thành gửi**, **Tỉnh/thành nhận** và cân nặng kiện hàng nhé!*"
         )
         return AIChatResponse(
             reply=reply,
